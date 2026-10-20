@@ -12,7 +12,12 @@
 #include <cstdio>
 #include <map>
 #include <mutex>
+#include <algorithm>
+#include <chrono>
+#include <cstring>
+#include <dirent.h>
 #include <fcntl.h>
+#include <vector>
 #include <unistd.h>
 
 namespace port::android {
@@ -132,6 +137,81 @@ std::string displayName(const std::string& stored) {
         return out;
     });
     return name.empty() ? stored : name;
+}
+
+namespace {
+struct ThreadTimes {
+    std::string name;
+    unsigned long long ticks = 0;
+};
+
+// utime + stime (clock ticks) and comm of a /proc/.../stat file.
+bool readStat(const std::string& path, ThreadTimes& out) {
+    FILE* f = std::fopen(path.c_str(), "r");
+    if (!f) return false;
+    char buf[1024];
+    const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+    std::fclose(f);
+    buf[n] = 0;
+    const char* open = std::strchr(buf, '(');
+    const char* close = std::strrchr(buf, ')');
+    if (!open || !close) return false;
+    out.name.assign(open + 1, close);
+    // Fields after ")": state(3) ... utime(14) stime(15).
+    const char* p = close + 2;
+    unsigned long long v[13] = {};
+    char state = 0;
+    if (std::sscanf(p, "%c %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu", &state, &v[0], &v[1], &v[2],
+                    &v[3], &v[4], &v[5], &v[6], &v[7], &v[8], &v[9], &v[10], &v[11]) < 13)
+        return false;
+    out.ticks = v[10] + v[11];
+    return true;
+}
+}  // namespace
+
+void startPerfLog() {
+    std::thread([] {
+        const double hz = double(sysconf(_SC_CLK_TCK));
+        std::map<std::string, unsigned long long> last;  // tid -> ticks
+        unsigned long long lastProc = 0;
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::seconds(10));
+            ThreadTimes proc;
+            if (!readStat("/proc/self/stat", proc)) continue;
+            std::vector<std::pair<double, std::string>> busy;
+            std::map<std::string, unsigned long long> now;
+            if (DIR* d = opendir("/proc/self/task")) {
+                while (dirent* e = readdir(d)) {
+                    if (e->d_name[0] == '.') continue;
+                    ThreadTimes t;
+                    if (!readStat(std::string("/proc/self/task/") + e->d_name + "/stat", t)) continue;
+                    now[e->d_name] = t.ticks;
+                    if (auto it = last.find(e->d_name); it != last.end() && t.ticks > it->second)
+                        busy.emplace_back(double(t.ticks - it->second) / hz / 10.0 * 100.0, t.name);
+                }
+                closedir(d);
+            }
+            last = std::move(now);
+            std::sort(busy.begin(), busy.end(), [](auto& a, auto& b) { return a.first > b.first; });
+            const int thermal = withActivity([](JNIEnv* env, jclass cls) -> int {
+                jmethodID m = env->GetStaticMethodID(cls, "thermalStatus", "()I");
+                return m ? env->CallStaticIntMethod(cls, m) : -1;
+            });
+            static const char* kThermal[] = {"none", "light", "moderate", "severe", "critical", "emergency", "shutdown"};
+            std::string top;
+            for (size_t i = 0; i < busy.size() && i < 5; i++) {
+                char b[96];
+                std::snprintf(b, sizeof(b), "%s%s %.0f%%", i ? ", " : "", busy[i].second.c_str(), busy[i].first);
+                top += b;
+            }
+            if (lastProc)
+                std::printf("[perf] cpu %.0f%% (100%% = one core); busiest threads: %s; thermal %s\n",
+                            double(proc.ticks - lastProc) / hz / 10.0 * 100.0, top.c_str(),
+                            thermal >= 0 && thermal <= 6 ? kThermal[thermal] : "unknown");
+            std::fflush(stdout);
+            lastProc = proc.ticks;
+        }
+    }).detach();
 }
 
 void shareLog() {

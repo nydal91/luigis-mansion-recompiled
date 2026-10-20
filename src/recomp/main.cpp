@@ -190,6 +190,7 @@ int main(int argc, char* argv[]) {
     using namespace recomp;
 #ifdef __ANDROID__
     port::android::redirectOutput();  // logcat + last_run.log (docs/ANDROID.md)
+    port::android::startPerfLog();    // "[perf]" CPU / thermal lines
 #endif
     // Windows: no console window for players; output to a terminal, a redirect or last_run.log.
     port::recovery::setupConsole(argc, argv);
