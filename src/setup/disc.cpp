@@ -44,8 +44,8 @@ bool Disc::open(const std::string& utf8Path, std::string& error) {
     const std::string openPath = port::discOpenPath(utf8Path, &error);  // Android: content:// URIs
     if (openPath.empty()) return false;
 #ifdef __ANDROID__
-    // nod's path API resolves the path (realpath) and /proc/self/fd/<n> points at a file the app
-    // may not open by name, so read through the descriptor's link with SDL like Aurora's DVD does.
+    // Picked files are content:// URIs, which only SDL_IOFromFile can open (through the
+    // ContentResolver), so nod reads through an SDL stream, like Aurora's DVD code does.
     {
         SDL_IOStream* io = SDL_IOFromFile(openPath.c_str(), "rb");
         if (!io) {

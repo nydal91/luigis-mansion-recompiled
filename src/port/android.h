@@ -25,7 +25,8 @@ std::filesystem::path nativeLibDir();
 
 // A path nod can open for a disc image the user picked: the system file picker returns
 // content:// URIs; they are opened through the ContentResolver (keeping the permission
-// across restarts) and read through /proc/self/fd/<fd>. Other paths are returned as is.
+// across restarts); the URI is returned and opened with SDL_IOFromFile (which reads it through
+// the ContentResolver). Other paths are returned as is.
 // Empty (and `error` set) when the URI can no longer be opened (file moved or deleted).
 std::string openDiscPath(const std::string& stored, std::string* error = nullptr);
 
