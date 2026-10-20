@@ -156,6 +156,13 @@ public class LMActivity extends SDLActivity {
         return null;
     }
 
+    /** PowerManager thermal status (0 none ... 6 shutdown), -1 if unknown. */
+    public static int thermalStatus() {
+        if (sSelf == null || Build.VERSION.SDK_INT < 29) return -1;
+        final android.os.PowerManager pm = (android.os.PowerManager) sSelf.getSystemService(Context.POWER_SERVICE);
+        return pm != null ? pm.getCurrentThermalStatus() : -1;
+    }
+
     /** Opens the system share sheet with the game's log (LogProvider). */
     public static void shareLog() {
         if (sSelf == null) return;

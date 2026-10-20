@@ -1,3 +1,6 @@
+#ifdef __ANDROID__
+#include <pthread.h>
+#endif
 #include "recomp/sched.h"
 
 #include "recomp/cpu_qos.h"
@@ -176,6 +179,9 @@ void finishThread(GuestThread* t, u32 val) {
 void threadMain(GuestThread* t) {
     tSelf = t;
     cpu::setCurrent(cpu::Role::Guest);
+#ifdef __ANDROID__
+    pthread_setname_np(pthread_self(), "guest");  // named in the [perf] log lines
+#endif
     u32 val = 0;
     try {
         {

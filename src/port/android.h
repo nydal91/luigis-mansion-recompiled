@@ -33,6 +33,10 @@ std::string openDiscPath(const std::string& stored, std::string* error = nullptr
 // A short name for a stored disc path, for the setup screen (content URIs are long).
 std::string displayName(const std::string& stored);
 
+// Every 10 s, logs the process' CPU use, its busiest threads and the device's thermal state
+// ("[perf]" lines), to tell a slow phone, a hot one and a stalled game apart in shared logs.
+void startPerfLog();
+
 // Opens the system share sheet with last_run.log (to send it to someone).
 void shareLog();
 

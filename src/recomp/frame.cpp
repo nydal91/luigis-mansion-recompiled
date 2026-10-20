@@ -1,3 +1,6 @@
+#ifdef __ANDROID__
+#include <pthread.h>
+#endif
 #include "recomp/frame.h"
 
 #include "port/recovery.h"
@@ -77,6 +80,9 @@ bool interpolationWanted() {
 void start(Entry boot) {
     sched::startHostThread([boot] {
         cpu::setCurrent(cpu::Role::Guest);
+#ifdef __ANDROID__
+        pthread_setname_np(pthread_self(), "guest-main");
+#endif
         {
             std::unique_lock lk(sM);
             sCv.wait(lk, [] { return sTurn == Turn::Guest || sStopping; });
