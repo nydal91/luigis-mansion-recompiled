@@ -22,6 +22,9 @@
 #define NOMINMAX
 #include <windows.h>
 #endif
+#ifdef __ANDROID__
+#include "port/android.h"
+#endif
 
 namespace recomp::precache {
 namespace {
@@ -31,7 +34,9 @@ using Clock = std::chrono::steady_clock;
 bool sLog = false;
 
 std::filesystem::path exeDir() {
-#ifdef _WIN32
+#ifdef __ANDROID__
+    return port::android::resourceDir();  // APK assets copied out by LMActivity (docs/ANDROID.md)
+#elif defined(_WIN32)
     wchar_t buf[MAX_PATH * 4];
     const DWORD n = GetModuleFileNameW(nullptr, buf, DWORD(std::size(buf)));
     return std::filesystem::path(std::wstring(buf, n)).parent_path();

@@ -51,6 +51,10 @@ if (NOT _stamped STREQUAL _patch_ids)
     file(WRITE ${_stamp} "${_patch_ids}")
 endif ()
 add_subdirectory(extern/aurora EXCLUDE_FROM_ALL)
+if (ANDROID)
+    # Plain char is unsigned on ARM; the port was written and tested where it is signed (x86).
+    add_compile_options(-fsigned-char)
+endif ()
 
 
 # ---- Shared game/library compile environment -------------------------------
@@ -85,7 +89,11 @@ endforeach ()
 # each unit is made to compile against Aurora (see docs/ROADMAP.md, Phase 1).
 file(GLOB PORT_SOURCES CONFIGURE_DEPENDS src/port/*.cpp src/port/os/*.cpp src/helpers/*.cpp)
 file(GLOB_RECURSE GAME_SOURCES CONFIGURE_DEPENDS src/game/*.cpp)
-add_executable(lmport ${PORT_SOURCES} ${GAME_SOURCES})
+if (ANDROID)
+    # The old hand-port prototype is desktop-only (not built on Android, like on Linux it is optional).
+    set(_lmport_exclude EXCLUDE_FROM_ALL)
+endif ()
+add_executable(lmport ${_lmport_exclude} ${PORT_SOURCES} ${GAME_SOURCES})
 target_include_directories(lmport PRIVATE src)
 target_link_libraries(lmport PRIVATE aurora::main ${GAME_LIBS} ${JSYSTEM_LIBRARIES})
 if (WIN32)
@@ -112,8 +120,10 @@ endif ()
 # dev build uses. Nothing generated is ever committed.
 add_library(lm_recompiler STATIC src/recompiler/recompiler.cpp src/recompiler/recompiler.h)
 target_include_directories(lm_recompiler PUBLIC src)
-add_executable(lmrecompile tools/recomp/lmrecompile.cpp)
-target_link_libraries(lmrecompile PRIVATE lm_recompiler)
+if (NOT ANDROID)
+    add_executable(lmrecompile tools/recomp/lmrecompile.cpp)
+    target_link_libraries(lmrecompile PRIVATE lm_recompiler)
+endif ()
 
 # Runtime shared by both executables: memory/CPU helpers, scheduler, HLE SDK, frame
 # driver, audio, menu. module_rt.cpp belongs to the game module, not the runtime.
@@ -125,6 +135,9 @@ list(APPEND RECOMP_RUNTIME_SOURCES src/port/crash_handler.cpp src/port/options.c
 # game module's cache key; docs/SETUP.md "Updates"). Only this file sees it, so a version bump
 # rebuilds one file.
 set_source_files_properties(src/port/update.cpp PROPERTIES COMPILE_DEFINITIONS "LM_VERSION=\"${PROJECT_VERSION}\"")
+if (ANDROID)
+    list(APPEND RECOMP_RUNTIME_SOURCES src/port/android.cpp)  # docs/ANDROID.md
+endif ()
 
 function(lm_runtime_target tgt)
     target_include_directories(${tgt} PRIVATE src
@@ -156,6 +169,8 @@ function(lm_runtime_target tgt)
         # libgcc_s stays shared: the static unwinder of a newer GCC needs _dl_find_object (glibc 2.35).
         target_link_options(${tgt} PRIVATE -static-libstdc++)
         target_link_libraries(${tgt} PRIVATE ${CMAKE_DL_LIBS})
+    elseif (ANDROID)
+        target_link_libraries(${tgt} PRIVATE ${CMAKE_DL_LIBS} log android)
     endif ()
 endfunction()
 
@@ -163,7 +178,17 @@ endfunction()
 # the setup UI; the game itself is a module DLL that setup compiles from the user's disc
 # with the bundled clang + lld (docs/SETUP.md).
 file(GLOB SETUP_SOURCES CONFIGURE_DEPENDS src/setup/*.cpp src/setup/*.h)
-add_executable(LuigisMansionRecomp ${RECOMP_RUNTIME_SOURCES} ${SETUP_SOURCES})
+if (ANDROID)
+    # Android (docs/ANDROID.md): the program is libmain.so, loaded by SDL's Java activity
+    # (packaging/android), which calls SDL_main (aurora::main renames main to it).
+    add_library(LuigisMansionRecomp SHARED ${RECOMP_RUNTIME_SOURCES} ${SETUP_SOURCES})
+    set_target_properties(LuigisMansionRecomp PROPERTIES OUTPUT_NAME main)
+    # Nothing in the program calls SDL_main (SDL's Java side looks it up with dlsym), so pull
+    # aurora::main's definition out of its static library explicitly.
+    target_link_options(LuigisMansionRecomp PRIVATE -Wl,-u,SDL_main)
+else ()
+    add_executable(LuigisMansionRecomp ${RECOMP_RUNTIME_SOURCES} ${SETUP_SOURCES})
+endif ()
 lm_runtime_target(LuigisMansionRecomp)
 target_link_libraries(LuigisMansionRecomp PRIVATE lm_recompiler)  # nod comes with aurora::dvd
 if (WIN32)
@@ -173,8 +198,19 @@ if (WIN32)
     target_link_options(LuigisMansionRecomp PRIVATE "LINKER:/ENTRY:mainCRTStartup")
 endif ()
 # Setup's inputs are embedded in the executable (src/setup/embedded.cpp): symbol maps,
-# hooks, and the game module's freestanding sources.
-add_executable(lmembed tools/recomp/lmembed.cpp)
+# hooks, and the game module's freestanding sources. lmembed runs at build time, so a
+# cross build (Android) takes one built for the build machine: LM_HOST_LMEMBED.
+if (CMAKE_CROSSCOMPILING)
+    set(LM_HOST_LMEMBED "" CACHE FILEPATH "lmembed built for the build machine (cross builds)")
+    if (NOT LM_HOST_LMEMBED)
+        message(FATAL_ERROR "Cross build: set LM_HOST_LMEMBED to a host build of tools/recomp/lmembed.cpp "
+            "(e.g. c++ -std=c++20 -O2 tools/recomp/lmembed.cpp -o lmembed; tools/android/build.sh does this)")
+    endif ()
+    add_executable(lmembed IMPORTED)
+    set_target_properties(lmembed PROPERTIES IMPORTED_LOCATION ${LM_HOST_LMEMBED})
+else ()
+    add_executable(lmembed tools/recomp/lmembed.cpp)
+endif ()
 set(LM_EMBEDDED_FILES
     kSymbolsUs=decomp/config/GLME01/symbols.txt kSplitsUs=decomp/config/GLME01/splits.txt
     kSymbolsPal=decomp/config/GLMP01_00/symbols.txt kVersionMapPal=tools/recomp/GLMP01_map.txt
@@ -200,7 +236,7 @@ else ()
     set(LM_MODULE_LINKER ld.lld)
 endif ()
 get_filename_component(_cxx_dir ${CMAKE_CXX_COMPILER} DIRECTORY)
-if (EXISTS ${_cxx_dir}/clang${CMAKE_EXECUTABLE_SUFFIX} AND EXISTS ${_cxx_dir}/${LM_MODULE_LINKER}${CMAKE_EXECUTABLE_SUFFIX})
+if (NOT CMAKE_CROSSCOMPILING AND EXISTS ${_cxx_dir}/clang${CMAKE_EXECUTABLE_SUFFIX} AND EXISTS ${_cxx_dir}/${LM_MODULE_LINKER}${CMAKE_EXECUTABLE_SUFFIX})
     target_compile_definitions(LuigisMansionRecomp PRIVATE "LM_DEV_LLVM_DIR=\"${_cxx_dir}\"")
 endif ()
 
@@ -218,6 +254,8 @@ if (WIN32)
         file(INSTALL \${_dlls} DESTINATION \"\${CMAKE_INSTALL_PREFIX}\")")
     install(PROGRAMS ${LM_LLVM_DIR}/clang${CMAKE_EXECUTABLE_SUFFIX} ${LM_LLVM_DIR}/lld-link${CMAKE_EXECUTABLE_SUFFIX}
         DESTINATION llvm/bin OPTIONAL)
+elseif (ANDROID)
+    # Android packaging is an APK, built by tools/android/build_apk.sh (docs/ANDROID.md).
 else ()
     # Linux (docs/LINUX.md): clang and ld.lld are usually symlinks (clang -> clang-21,
     # ld.lld -> lld); copy the real binaries under the names the setup looks for (lld picks

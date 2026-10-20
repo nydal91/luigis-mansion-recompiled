@@ -1,6 +1,7 @@
 #include "setup/disc.h"
 
 #include "port/dol.h"
+#include "port/install.h"
 
 #include <nod.h>
 
@@ -22,7 +23,9 @@ Disc::~Disc() {
 }
 
 bool Disc::open(const std::string& utf8Path, std::string& error) {
-    if (nod_disc_open(utf8Path.c_str(), nullptr, &disc_) != NOD_RESULT_OK) {
+    const std::string openPath = port::discOpenPath(utf8Path, &error);  // Android: content:// URIs
+    if (openPath.empty()) return false;
+    if (nod_disc_open(openPath.c_str(), nullptr, &disc_) != NOD_RESULT_OK) {
         const char* msg = nod_error_message();
         error = std::string("Could not read the disc image") + (msg ? std::string(": ") + msg : ".");
         return false;

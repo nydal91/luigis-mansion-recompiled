@@ -6,6 +6,9 @@
 #include "recomp/ctx.h"
 #include "recompiler/recompiler.h"
 #include "setup/embedded.h"
+#ifdef __ANDROID__
+#include "port/android.h"
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -53,6 +56,22 @@ constexpr const char* kModuleFile = "module.dll";
 constexpr const char* kObjExt = ".obj";
 constexpr const char* kExeSuffix = ".exe";
 constexpr const char* kLinkerName = "lld-link";
+#elif defined(__ANDROID__)
+// Android (docs/ANDROID.md): the Linux flags for arm64. -mno-outline-atomics: the module has
+// no libgcc/compiler-rt to provide the __aarch64_* atomic helpers. -fsigned-char: like the
+// runtime (CMakeLists.txt) and x86, where the port was written.
+const std::vector<std::string> kCompileFlags = {
+    "--target=aarch64-linux-android28", "-std=c++20", "-O2", "-fPIC", "-fvisibility=hidden", "-ffreestanding",
+    "-nostdinc", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics", "-fno-math-errno",
+    "-fno-stack-protector", "-funwind-tables", "-mno-outline-atomics", "-fsigned-char",
+    "-Wno-unused-label", "-Wno-unused-variable"};
+const std::vector<std::string> kLinkFlags = {"-shared", "-nostdlib", "--eh-frame-hdr", "-Bsymbolic",
+                                             "-z", "defs", "-z", "noexecstack", "-z", "now", "-O1",
+                                             "--hash-style=both", "-soname", "lm_game_module.so"};
+constexpr const char* kModuleFile = "module.so";
+constexpr const char* kObjExt = ".o";
+constexpr const char* kExeSuffix = "";
+constexpr const char* kLinkerName = "ld.lld";
 #else
 // Linux: a position-independent shared object. Everything is hidden and bound locally
 // (-fvisibility=hidden, -Bsymbolic) except lm_module_init, so the module's g_mem, memcpy, ...
@@ -76,6 +95,9 @@ constexpr const char* kLinkerName = "ld.lld";
 // itself handles plain paths past MAX_PATH). Our own file calls go through port::longPath, so a
 // deep %APPDATA% works without Windows' long path policy (docs/SETUP.md "Long paths").
 using port::longPath;
+// Leading arguments for the tools: on Android one multi-call LLVM binary (libllvm.so, the
+// clang and lld "llvm-driver" build) is both, selected by its first argument.
+std::vector<std::string> sClangPrefix, sLldPrefix;
 
 bool writeText(const std::filesystem::path& p, std::string_view text) {
     std::ofstream o(longPath(p), std::ios::binary);
@@ -245,6 +267,26 @@ bool moduleUpToDate(const Disc& disc) {
 }
 
 bool findToolchain(std::filesystem::path& clang, std::filesystem::path& lld, std::string& error) {
+#ifdef __ANDROID__
+    // The APK carries the compiler as lib/arm64-v8a/libllvm.so, which the installer unpacks
+    // into the app's native library folder: the one place an app may run programs from
+    // (docs/ANDROID.md). LM_LLVM_DIR (testing) may name another folder with it.
+    std::vector<std::filesystem::path> androidDirs;
+    if (const char* env = std::getenv("LM_LLVM_DIR")) androidDirs.emplace_back(env);
+    androidDirs.push_back(port::android::nativeLibDir());
+    for (const auto& d : androidDirs) {
+        std::error_code ec;
+        const auto drv = d / "libllvm.so";
+        if (std::filesystem::exists(drv, ec)) {
+            clang = lld = drv;
+            sClangPrefix = {"clang"};
+            sLldPrefix = {"ld.lld"};
+            return true;
+        }
+    }
+    error = "The bundled compiler (libllvm.so) is missing from the app. Reinstall the app (docs/ANDROID.md).";
+    return false;
+#endif
     const char* exe = kExeSuffix;
     std::vector<std::filesystem::path> dirs{exeDir() / "llvm" / "bin"};
     if (const char* env = std::getenv("LM_LLVM_DIR")) dirs.emplace_back(env);
@@ -343,7 +385,18 @@ bool buildModule(const Disc& disc, const Progress& progress, std::string& error)
         std::error_code e;
         return std::filesystem::file_size(longPath(a), e) > std::filesystem::file_size(longPath(b), e);
     });
-    const unsigned jobs = std::max(1u, std::min<unsigned>(unsigned(sources.size()), std::thread::hardware_concurrency()));
+    unsigned maxJobs = std::thread::hardware_concurrency();
+#ifdef __ANDROID__
+    // Phones: one compile of a large generated file can take over a gigabyte, and the system
+    // kills the app when memory runs out, so allow one job per 1.5 GB of RAM (docs/ANDROID.md).
+    {
+        const long pages = sysconf(_SC_PHYS_PAGES), page = sysconf(_SC_PAGESIZE);
+        const double gb = pages > 0 && page > 0 ? double(pages) * double(page) / (1024.0 * 1024.0 * 1024.0) : 4.0;
+        maxJobs = std::min(maxJobs, std::max(1u, unsigned(gb / 1.5)));
+    }
+#endif
+    if (const char* j = std::getenv("LM_COMPILE_JOBS"); j && std::atoi(j) > 0) maxJobs = unsigned(std::atoi(j));
+    const unsigned jobs = std::max(1u, std::min<unsigned>(unsigned(sources.size()), maxJobs));
     std::mutex m;
     size_t next = 0, done = 0;
     std::string failure;
@@ -361,7 +414,8 @@ bool buildModule(const Disc& disc, const Progress& progress, std::string& error)
             obj += kObjExt;
             auto log = work / "obj" / src.stem();
             log += ".log";
-            std::vector<std::string> args(kCompileFlags.begin(), kCompileFlags.end());
+            std::vector<std::string> args(sClangPrefix);
+            args.insert(args.end(), kCompileFlags.begin(), kCompileFlags.end());
             args.push_back("-I" + utf8(work / "include"));
             args.push_back("-c");
             args.push_back(utf8(src));
@@ -392,7 +446,8 @@ bool buildModule(const Disc& disc, const Progress& progress, std::string& error)
     // 3. Link.
     report("Linking the game module", 0.96f);
     const auto tmpDll = work / kModuleFile;
-    std::vector<std::string> args(kLinkFlags.begin(), kLinkFlags.end());
+    std::vector<std::string> args(sLldPrefix);
+    args.insert(args.end(), kLinkFlags.begin(), kLinkFlags.end());
 #ifdef _WIN32
     args.push_back("/out:" + utf8(tmpDll));
     args.push_back("/implib:" + utf8(work / "module.lib"));
@@ -415,6 +470,13 @@ bool buildModule(const Disc& disc, const Progress& progress, std::string& error)
         error = "Could not install the game module: " + ec.message();
         return false;
     }
+#ifdef __ANDROID__
+    // Code an app loads at run time must not be writable (Android 14+ checks this).
+    std::filesystem::permissions(dir / kModuleFile,
+                                 std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec |
+                                     std::filesystem::perms::group_read | std::filesystem::perms::others_read,
+                                 ec);
+#endif
     writeText(dir / "module.key", moduleKey(disc));
     writeText(dir / "recompiler.log", out.summary + "\n");
     // Generated code is derived from the user's game; keep it only while building.

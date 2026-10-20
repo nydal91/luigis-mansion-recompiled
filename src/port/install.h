@@ -121,6 +121,12 @@ std::string installPathProblem();  // "" when the program's folder is short enou
 // A message for the player when long paths are off and the data folder is too deep for the
 // parts that use plain paths (Aurora's memory cards, caches, imgui.ini); "" when all is well.
 std::string dataPathProblem();
+// The path to open a stored disc image path with (nod / aurora_dvd_open). The same path on
+// desktops; on Android the file picker gives content:// URIs, opened here through the
+// ContentResolver (port/android.h). Empty, with `error` set, if it can't be opened.
+std::string discOpenPath(const std::string& stored, std::string* error = nullptr);
+// How to show a stored disc path to the player (Android: the file's name instead of the URI).
+std::string discDisplayName(const std::string& stored);
 
 void loadInstall();
 void saveInstall();

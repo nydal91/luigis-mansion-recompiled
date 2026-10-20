@@ -29,9 +29,13 @@
 #include "recomp/precache.h"
 #include "recomp/runtime.h"
 #include "recomp/sched.h"
+#include "recomp/touch.h"
 #include "recomp/widescreen.h"
 #ifndef LM_STATIC_MODULE
 #include "setup/setup.h"
+#endif
+#ifdef __ANDROID__
+#include "port/android.h"
 #endif
 
 #include <atomic>
@@ -184,6 +188,9 @@ void hangDetail(char* out, size_t size, bool stallBegins) {
 
 int main(int argc, char* argv[]) {
     using namespace recomp;
+#ifdef __ANDROID__
+    port::android::redirectOutput();  // logcat + last_run.log (docs/ANDROID.md)
+#endif
     // Windows: no console window for players; output to a terminal, a redirect or last_run.log.
     port::recovery::setupConsole(argc, argv);
     port::installCrashHandler();
@@ -279,6 +286,9 @@ int main(int argc, char* argv[]) {
     if (!sCacheOverride.empty()) config.cachePath = sCacheOverride.c_str();
     const port::Options& opts = port::options();
     config.startFullscreen = opts.fullscreen || port::settings().video.fullscreen;
+#ifdef __ANDROID__
+    config.startFullscreen = true;  // immersive: no status or navigation bar over the game
+#endif
     config.windowWidth = opts.windowWidth;
     config.windowHeight = opts.windowHeight;
     if (!config.windowWidth && opts.aspectRatio > 0.0f) {  // fixed aspect: open a window of that shape
@@ -292,6 +302,10 @@ int main(int argc, char* argv[]) {
     const bool topmost = std::getenv("LM_TOPMOST") != nullptr;
     if (topmost) SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
     cpu::init();  // thread policy + Aurora thread hooks (issue #18), before Aurora starts its threads
+#ifdef __ANDROID__
+    // The Back button opens/closes the F1 menu (menu.cpp) instead of closing the app.
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+#endif
     aurora_initialize(argc, argv, &config);
     if (topmost)
         if (SDL_Window* w = aurora_get_window()) SDL_SetWindowAlwaysOnTop(w, true);
@@ -338,8 +352,16 @@ int main(int argc, char* argv[]) {
     const char* wantId = port::gameId(launch.version);
 #endif
     port::setPhase("loading the game");
-    if (disc.empty() || !aurora_dvd_open(disc.c_str())) {
+    const std::string discOpen = port::discOpenPath(disc);  // Android: content:// URI -> descriptor
+    if (discOpen.empty() || !aurora_dvd_open(discOpen.c_str())) {
         std::fprintf(stderr, "Could not open a Luigi's Mansion disc image. Pass --disc <path to .iso/.rvz>.\n");
+#ifdef __ANDROID__  // no console to read: say it on screen
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Luigi's Mansion",
+                                 "The disc image could not be opened (was it moved or deleted?). "
+                                 "Start the app again and choose it on the setup screen.",
+                                 nullptr);
+        port::relaunch(true);
+#endif
         aurora_shutdown();
         return 1;
     }
@@ -370,6 +392,10 @@ int main(int argc, char* argv[]) {
 #ifndef LM_STATIC_MODULE
     if (std::string err; !loadGameModule(launch.module, err)) {
         std::fprintf(stderr, "%s\n", err.c_str());
+#ifdef __ANDROID__  // no console to read: say it on screen
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Luigi's Mansion",
+                                 ("The game module could not be loaded:\n" + err).c_str(), nullptr);
+#endif
         aurora_shutdown();
         return 1;
     }
@@ -425,7 +451,7 @@ int main(int argc, char* argv[]) {
         if (quitAfter > 0 && std::chrono::duration<double>(std::chrono::steady_clock::now() - runStart).count() > quitAfter)
             break;
         for (const AuroraEvent* ev = aurora_update(); ev && ev->type != AURORA_NONE; ++ev) {
-            if (ev->type == AURORA_SDL_EVENT) menu::handleEvent(ev->sdl);
+            if (ev->type == AURORA_SDL_EVENT && !touch::handleEvent(ev->sdl)) menu::handleEvent(ev->sdl);
             if (ev->type == AURORA_EXIT) exiting = true;
             else if (ev->type == AURORA_PAUSED) {
                 paused = true;
@@ -487,6 +513,7 @@ int main(int argc, char* argv[]) {
             lastPresented = SteadyClock::now();
             presentStallReported = false;
             menu::draw();  // applies settings changes (they may change what is being compiled)
+            touch::draw();
             precache::drawHold();
             precache::frame();
             aurora_end_frame();
@@ -513,6 +540,7 @@ int main(int argc, char* argv[]) {
         interp::hostMark(2);
         port::setPhase("game loop: F1 menu / overlays");
         menu::draw();
+        touch::draw();  // Android on-screen pad (touch.h)
         precache::frame();
         port::setPhase("game loop: present hold");
         pacing::beforeEnd();

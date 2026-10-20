@@ -16,6 +16,7 @@
 #include "recomp/menu.h"
 #include "recomp/controls.h"
 #include "recomp/ui_scale.h"
+#include "recomp/touch.h"
 
 #include "port/settings.h"
 
@@ -1461,6 +1462,10 @@ bool drawTab() {
         }
         if (ImGui::BeginTabItem("Sticks, triggers & rumble", nullptr, subTabFlags("Analog"))) {
             local |= analogTab();
+            ImGui::EndTabItem();
+        }
+        if (touch::supported() && ImGui::BeginTabItem("Touch", nullptr, subTabFlags("Touch"))) {
+            changed |= touch::drawSettings();  // a plain setting (settings.ini [enhancements])
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
