@@ -159,14 +159,14 @@ public class LMActivity extends SDLActivity {
     /** Opens the system share sheet with the game's log (LogProvider). */
     public static void shareLog() {
         if (sSelf == null) return;
-        sSelf.runOnUiThread(() -> {
+        sSelf.runOnUiThread(new Runnable() { @Override public void run() {
             final Intent send = new Intent(Intent.ACTION_SEND);
             send.setType("text/plain");
             send.putExtra(Intent.EXTRA_STREAM, Uri.parse("content://" + LogProvider.AUTHORITY + "/last_run.log"));
             send.putExtra(Intent.EXTRA_SUBJECT, "Luigi's Mansion Port log");
             send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             sSelf.startActivity(Intent.createChooser(send, "Share log"));
-        });
+        }});
     }
 
     /**
