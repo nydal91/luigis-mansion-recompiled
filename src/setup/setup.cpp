@@ -5,6 +5,7 @@
 #include "port/dol.h"
 #include "recomp/precache.h"
 #include "recomp/ui_scale.h"
+#include "recomp/touch.h"
 #include "setup/disc.h"
 #include "setup/hm_overlay.h"
 #include "setup/module_builder.h"
@@ -237,6 +238,7 @@ bool run(const Options& opts, LaunchInfo& launch) {
             if (ev->type == AURORA_EXIT) return false;
             if (ev->type == AURORA_PAUSED) port::setPhase(nullptr);  // waits for the window: not a hang
             if (ev->type == AURORA_UNPAUSED) port::setPhase("setup");
+            if (ev->type == AURORA_SDL_EVENT) recomp::touch::feedImGui(ev->sdl);  // Android taps (touch.h)
         }
         {
             std::lock_guard lk(sPickM);

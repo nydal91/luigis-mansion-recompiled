@@ -464,7 +464,10 @@ int main(int argc, char* argv[]) {
         if (quitAfter > 0 && std::chrono::duration<double>(std::chrono::steady_clock::now() - runStart).count() > quitAfter)
             break;
         for (const AuroraEvent* ev = aurora_update(); ev && ev->type != AURORA_NONE; ++ev) {
-            if (ev->type == AURORA_SDL_EVENT && !touch::handleEvent(ev->sdl)) menu::handleEvent(ev->sdl);
+            if (ev->type == AURORA_SDL_EVENT && !touch::handleEvent(ev->sdl)) {
+                touch::feedImGui(ev->sdl);  // taps on the F1 menu (Android; touch.h)
+                menu::handleEvent(ev->sdl);
+            }
             if (ev->type == AURORA_EXIT) exiting = true;
             else if (ev->type == AURORA_PAUSED) {
                 paused = true;
