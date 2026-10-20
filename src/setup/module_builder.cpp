@@ -11,6 +11,7 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cerrno>
 #include <cstdio>
@@ -123,6 +124,10 @@ using port::longPath;
 // Leading arguments for the tools: on Android one multi-call LLVM binary (libllvm.so, the
 // clang and lld "llvm-driver" build) is both, selected by its first argument.
 std::vector<std::string> sClangPrefix, sLldPrefix;
+#ifdef __ANDROID__
+std::mutex sSerialM;                // held by each compile once memory ran out
+std::atomic<bool> sLowMemory{false};  // the system killed a compile during this build
+#endif
 
 bool writeText(const std::filesystem::path& p, std::string_view text) {
     std::ofstream o(longPath(p), std::ios::binary);
@@ -443,11 +448,12 @@ bool buildModule(const Disc& disc, const Progress& progress, std::string& error)
     unsigned maxJobs = std::thread::hardware_concurrency();
 #ifdef __ANDROID__
     // Phones: one compile of a large generated file can take over a gigabyte, and the system
-    // kills the app when memory runs out, so allow one job per 1.5 GB of RAM (docs/ANDROID.md).
+    // kills the app when memory runs out, so allow one job per 2.5 GB of RAM (the system and other
+    // apps keep a good part of it; docs/ANDROID.md).
     {
         const long pages = sysconf(_SC_PHYS_PAGES), page = sysconf(_SC_PAGESIZE);
         const double gb = pages > 0 && page > 0 ? double(pages) * double(page) / (1024.0 * 1024.0 * 1024.0) : 4.0;
-        maxJobs = std::min(maxJobs, std::max(1u, unsigned(gb / 1.5)));
+        maxJobs = std::min(maxJobs, std::max(1u, unsigned(gb / 2.5)));
     }
 #endif
     if (const char* j = std::getenv("LM_COMPILE_JOBS"); j && std::atoi(j) > 0) maxJobs = unsigned(std::atoi(j));
@@ -476,7 +482,26 @@ bool buildModule(const Disc& disc, const Progress& progress, std::string& error)
             args.push_back(utf8(src));
             args.push_back("-o");
             args.push_back(utf8(obj));
+#ifdef __ANDROID__
+            // After the system killed a compile (128 + signal, most likely for memory), the rest
+            // run one at a time, and the killed one again.
+            int rc;
+            if (sLowMemory) {
+                std::lock_guard serial(sSerialM);
+                rc = run(clang, args, log);
+            } else {
+                rc = run(clang, args, log);
+            }
+            if (rc > 128) {
+                sLowMemory = true;
+                std::printf("[setup] a compile was killed (exit %d): continuing one file at a time\n", rc);
+                std::fflush(stdout);
+                std::lock_guard serial(sSerialM);
+                rc = run(clang, args, log);
+            }
+#else
             const int rc = run(clang, args, log);
+#endif
             std::lock_guard lk(m);
             if (rc != 0 && failure.empty())
                 failure = "Compiling " + src.filename().string() + " failed (exit " + std::to_string(rc) + "):\n" +
