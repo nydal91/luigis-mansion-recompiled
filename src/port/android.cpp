@@ -134,6 +134,14 @@ std::string displayName(const std::string& stored) {
     return name.empty() ? stored : name;
 }
 
+void shareLog() {
+    std::fflush(stdout);
+    withActivity([&](JNIEnv* env, jclass cls) -> int {
+        if (jmethodID m = env->GetStaticMethodID(cls, "shareLog", "()V")) env->CallStaticVoidMethod(cls, m);
+        return 0;
+    });
+}
+
 void relaunch(bool setup) {
     withActivity([&](JNIEnv* env, jclass cls) -> int {
         if (jmethodID m = env->GetStaticMethodID(cls, "relaunch", "(Z)V"))

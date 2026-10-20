@@ -51,6 +51,12 @@
             </intent-filter>
         </activity>
 
+        <!-- The game's log files for "Share log" (LogProvider.java). -->
+        <provider android:name="dev.lmport.LogProvider"
+            android:authorities="dev.lmport.luigismansion.logs"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <!-- Restarts the game in a fresh process (LMRestartActivity.java). -->
         <activity android:name="dev.lmport.LMRestartActivity"
             android:process=":restart"
