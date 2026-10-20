@@ -74,7 +74,7 @@ compiler and setup reports it missing.
 | Settings, install.ini, modules, overlays, memory cards | `%APPDATA%` / XDG folders | `Context.getFilesDir()` (`LM_ANDROID_FILES`) |
 | GPU caches | `%APPDATA%` / `$XDG_CACHE_HOME` | `Context.getCacheDir()` (`LM_ANDROID_CACHE`) |
 | `pipelines.bin` | next to the executable | APK asset, copied to `files/res` on the first start of each app version (`LM_ANDROID_RES`) |
-| Disc images | file paths | `content://` URIs from the system file picker (SDL's `ACTION_OPEN_DOCUMENT`); opened through the ContentResolver with a persistent read permission, read by nod and Aurora through `/proc/self/fd/<fd>` (`port::discOpenPath`) |
+| Disc images | file paths | `content://` URIs from the system file picker (SDL's `ACTION_OPEN_DOCUMENT`); opened through the ContentResolver with a persistent read permission, read by nod and Aurora through SDL streams (`SDL_IOFromFile` opens content URIs; `port::discOpenPath`) |
 | Restart (setup changes) | exec of the executable | `LMRestartActivity` in its own process (`:restart`) starts the game again once the old process has exited |
 | Logging | console / launcher script | stdout + stderr to logcat (tag `LuigisMansion`) and `files/last_run.log` (`port::android::redirectOutput`) |
 | Crashes | own signal/SEH handler | Android's debuggerd (tombstone + logcat backtrace) |
@@ -110,7 +110,7 @@ Built and packaged in a cloud workspace without an Android device or a game disc
 - The on-device setup (recompiling the DOL, compiling 33 files with the bundled clang,
   linking, `dlopen`) has only been tried with a synthetic module (compile, link, symbol
   checks); memory use and time on a real phone are unknown.
-- Large disc images through `/proc/self/fd` from cloud-backed file providers (Google Drive
+- Large disc images from cloud-backed file providers (Google Drive
   and similar) may be slow or not seekable; a copy in the device's own storage
   (Downloads) is the safe choice.
 - First things to check on a device: setup to the title screen, then F1 > Visuals >

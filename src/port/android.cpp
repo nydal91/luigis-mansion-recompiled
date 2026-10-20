@@ -49,8 +49,6 @@ auto withActivity(F&& f) -> decltype(f(static_cast<JNIEnv*>(nullptr), jclass{}))
     return r;
 }
 
-std::mutex sFdM;
-std::map<std::string, int> sFds;  // content URI -> open descriptor (kept for the process' lifetime)
 
 }  // namespace
 
@@ -98,12 +96,10 @@ std::filesystem::path nativeLibDir() { return envDir("LM_ANDROID_LIBDIR", nullpt
 
 std::string openDiscPath(const std::string& stored, std::string* error) {
     if (stored.rfind("content://", 0) != 0) return stored;
-    std::lock_guard lk(sFdM);
-    if (auto it = sFds.find(stored); it != sFds.end()) {
-        // Still valid? (the descriptor is ours; nothing else closes it)
-        if (fcntl(it->second, F_GETFD) != -1) return "/proc/self/fd/" + std::to_string(it->second);
-        sFds.erase(it);
-    }
+    // Opening once through LMActivity checks the file is still there and makes the read
+    // permission persistent. The URI itself is then what gets opened: SDL_IOFromFile opens
+    // content:// URIs through the ContentResolver and reads that descriptor directly
+    // (re-opening /proc/self/fd/<n> fails for files the app can't see by path).
     const int fd = withActivity([&](JNIEnv* env, jclass cls) -> int {
         jmethodID m = env->GetStaticMethodID(cls, "openContentFd", "(Ljava/lang/String;)I");
         if (!m) return -1;
@@ -116,8 +112,8 @@ std::string openDiscPath(const std::string& stored, std::string* error) {
         if (error) *error = "The disc image can no longer be opened (was it moved or deleted?). Choose it again.";
         return {};
     }
-    sFds[stored] = fd;
-    return "/proc/self/fd/" + std::to_string(fd);
+    close(fd);
+    return stored;
 }
 
 std::string displayName(const std::string& stored) {
