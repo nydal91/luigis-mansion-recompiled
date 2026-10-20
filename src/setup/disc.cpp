@@ -5,6 +5,13 @@
 
 #include <nod.h>
 
+#include <cctype>
+#include <cstring>
+#ifdef __ANDROID__
+#include <SDL3/SDL_iostream.h>
+#include <SDL3/SDL_error.h>
+#endif
+
 namespace setup {
 
 std::string hex(const std::uint8_t* data, size_t n) {
@@ -23,9 +30,55 @@ Disc::~Disc() {
 }
 
 bool Disc::open(const std::string& utf8Path, std::string& error) {
+    {
+        // Archives are not disc images: say so instead of nod's "unknown format".
+        std::string name = port::discDisplayName(utf8Path);
+        for (auto& ch : name) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+        for (const char* ext : {".7z", ".zip", ".rar", ".gz", ".xz"})
+            if (name.size() > std::strlen(ext) && name.compare(name.size() - std::strlen(ext), std::string::npos, ext) == 0) {
+                error = "This is a compressed archive, not a disc image. Extract it first (to an .iso, .ciso, .rvz, ...) "
+                        "and choose the extracted file.";
+                return false;
+            }
+    }
     const std::string openPath = port::discOpenPath(utf8Path, &error);  // Android: content:// URIs
     if (openPath.empty()) return false;
+#ifdef __ANDROID__
+    // nod's path API resolves the path (realpath) and /proc/self/fd/<n> points at a file the app
+    // may not open by name, so read through the descriptor's link with SDL like Aurora's DVD does.
+    {
+        SDL_IOStream* io = SDL_IOFromFile(openPath.c_str(), "rb");
+        if (!io) {
+            error = std::string("Could not read the disc image: ") + SDL_GetError();
+            return false;
+        }
+        const NodDiscStream stream{
+            .user_data = io,
+            .read_at = [](void* ud, uint64_t off, void* out, size_t len) -> int64_t {
+                auto* s = static_cast<SDL_IOStream*>(ud);
+                if (SDL_SeekIO(s, Sint64(off), SDL_IO_SEEK_SET) < 0) return -1;
+                size_t done = 0;
+                while (done < len) {
+                    const size_t n = SDL_ReadIO(s, static_cast<char*>(out) + done, len - done);
+                    if (n == 0) break;
+                    done += n;
+                }
+                return int64_t(done);
+            },
+            .stream_len = [](void* ud) -> int64_t { return SDL_GetIOSize(static_cast<SDL_IOStream*>(ud)); },
+            .close = [](void* ud) { SDL_CloseIO(static_cast<SDL_IOStream*>(ud)); },
+        };
+        const NodDiscOptions options{.preloader_threads = 1};
+        if (nod_disc_open_stream(&stream, &options, &disc_) != NOD_RESULT_OK) {
+            const char* msg = nod_error_message();
+            error = std::string("Could not read the disc image") + (msg ? std::string(": ") + msg : ".");
+            return false;
+        }
+    }
+    if (false) {
+#else
     if (nod_disc_open(openPath.c_str(), nullptr, &disc_) != NOD_RESULT_OK) {
+#endif
         const char* msg = nod_error_message();
         error = std::string("Could not read the disc image") + (msg ? std::string(": ") + msg : ".");
         return false;
