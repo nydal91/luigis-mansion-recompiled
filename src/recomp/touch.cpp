@@ -134,6 +134,51 @@ s8 axis(float v) { return s8(std::lround(std::clamp(v, -1.0f, 1.0f) * 105.0f)); 
 
 bool supported() { return kSupported; }
 
+namespace {
+SDL_FingerID sUiFinger = 0;  // the finger driving ImGui's mouse (0: none)
+bool sUiFingerDown = false;
+}  // namespace
+
+bool feedImGui(const SDL_Event& ev) {
+    if (!kSupported || !ImGui::GetCurrentContext()) return false;
+    if (ev.type != SDL_EVENT_FINGER_DOWN && ev.type != SDL_EVENT_FINGER_MOTION && ev.type != SDL_EVENT_FINGER_UP &&
+        ev.type != SDL_EVENT_FINGER_CANCELED)
+        return false;
+    ImGuiIO& io = ImGui::GetIO();
+    float w = io.DisplaySize.x, h = io.DisplaySize.y;
+    if (w <= 0 || h <= 0) {
+        int iw = 0, ih = 0;
+        if (SDL_Window* win = SDL_GetWindowFromID(ev.tfinger.windowID)) SDL_GetWindowSize(win, &iw, &ih);
+        w = float(iw);
+        h = float(ih);
+    }
+    const float x = ev.tfinger.x * w, y = ev.tfinger.y * h;
+    if (ev.type == SDL_EVENT_FINGER_DOWN) {
+        if (sUiFingerDown) return false;  // a second finger: ignored by the menus
+        sUiFinger = ev.tfinger.fingerID;
+        sUiFingerDown = true;
+        io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
+        io.AddMousePosEvent(x, y);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        return true;
+    }
+    if (!sUiFingerDown || ev.tfinger.fingerID != sUiFinger) return false;
+    io.AddMouseSourceEvent(ImGuiMouseSource_TouchScreen);
+    io.AddMousePosEvent(x, y);
+    if (ev.type == SDL_EVENT_FINGER_MOTION) {
+        // Dragging scrolls lists like a phone does: ImGui's touch source drags windows' scroll
+        // only with the wheel, so turn vertical movement into wheel steps.
+        const float dy = ev.tfinger.dy * h;
+        if (dy != 0.0f) io.AddMouseWheelEvent(0.0f, dy / (ImGui::GetFontSize() * 3.0f));
+        return true;
+    }
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    // Lift the pointer off the screen, so nothing stays "hovered" under the last tap.
+    io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+    sUiFingerDown = false;
+    return true;
+}
+
 bool handleEvent(const SDL_Event& ev) {
     if (!kSupported) return false;
     if (ev.type != SDL_EVENT_FINGER_DOWN && ev.type != SDL_EVENT_FINGER_MOTION && ev.type != SDL_EVENT_FINGER_UP &&

@@ -14,6 +14,9 @@ bool handleEvent(const SDL_Event& ev);
 void draw();
 // PADRead (guest thread): adds the touch pad to port 1.
 void apply(PADStatus* status);
+// Taps and drags for the menus (setup screen, F1 menu): Aurora turns off SDL's touch-to-mouse
+// events, so one finger is fed to ImGui as a touchscreen mouse here. True when used.
+bool feedImGui(const SDL_Event& ev);
 // F1 > Controls > Touch.
 bool drawSettings();
 // Built for a touch platform (Android) at all.
