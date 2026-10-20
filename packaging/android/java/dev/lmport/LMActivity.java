@@ -45,6 +45,10 @@ public class LMActivity extends SDLActivity {
             Os.setenv("LM_ANDROID_LIBDIR", getApplicationInfo().nativeLibraryDir, true);
             Os.setenv("HOME", files, true);
             Os.setenv("TMPDIR", getCacheDir().getAbsolutePath(), true);
+            // Performance lines in the log (frame rate every 2 s, GPU time per pass every 10 s),
+            // so a shared log (F1 > Enhancements > Debug > Share log) shows where time goes.
+            Os.setenv("LM_FPS_LOG", "1", false);
+            Os.setenv("AURORA_GPU_PROFILE", "10", false);
             final File res = new File(getFilesDir(), "res");
             copyAssets(res);
             Os.setenv("LM_ANDROID_RES", res.getAbsolutePath(), true);
@@ -150,6 +154,19 @@ public class LMActivity extends SDLActivity {
             Log.w(TAG, "no name for " + uriString, e);
         }
         return null;
+    }
+
+    /** Opens the system share sheet with the game's log (LogProvider). */
+    public static void shareLog() {
+        if (sSelf == null) return;
+        sSelf.runOnUiThread(() -> {
+            final Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_STREAM, Uri.parse("content://" + LogProvider.AUTHORITY + "/last_run.log"));
+            send.putExtra(Intent.EXTRA_SUBJECT, "Luigi's Mansion Port log");
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            sSelf.startActivity(Intent.createChooser(send, "Share log"));
+        });
     }
 
     /**

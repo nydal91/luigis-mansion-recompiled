@@ -33,6 +33,9 @@ std::string openDiscPath(const std::string& stored, std::string* error = nullptr
 // A short name for a stored disc path, for the setup screen (content URIs are long).
 std::string displayName(const std::string& stored);
 
+// Opens the system share sheet with last_run.log (to send it to someone).
+void shareLog();
+
 // Restarts the app (optionally on the setup screen); does not return.
 [[noreturn]] void relaunch(bool setup);
 

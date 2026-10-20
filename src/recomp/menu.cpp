@@ -1,6 +1,9 @@
 // In-game overlay menu (F1 toggles, Esc closes): Visuals / Sound / Controls / Enhancements / Game.
 // Drawn with Aurora's Dear ImGui on the host thread between the guest's present
 // and aurora_end_frame. While it is open the game receives neutral pad input.
+#ifdef __ANDROID__
+#include "port/android.h"
+#endif
 #include "recomp/menu.h"
 #include "recomp/gx_bridge.h"
 
@@ -352,7 +355,12 @@ void applyResolution() { VISetFrameBufferScale(float(port::settings().video.reso
 void applyWindowSettings() {
     const auto& v = port::settings().video;
     applyResolution();
+#ifdef __ANDROID__
+    // Phones: always fullscreen (immersive: no status or navigation bar over the game).
+    if (SDL_Window* w = aurora_get_window()) SDL_SetWindowFullscreen(w, true);
+#else
     if (SDL_Window* w = aurora_get_window()) SDL_SetWindowFullscreen(w, v.fullscreen);
+#endif
     // Automated runs (scripted --input, or LM_BACKGROUND=1) never pause when another window
     // takes focus, so several test instances can run side by side.
     static const bool sBackground = !port::options().inputScript.empty() || std::getenv("LM_BACKGROUND") != nullptr;
@@ -1822,6 +1830,10 @@ void gameplayTab() { gameplaySection(); }
 
 // Debug features left in the game, warps and viewers.
 void debugTab() {
+#ifdef __ANDROID__
+    if (ImGui::Button("Share log")) port::android::shareLog();
+    ImGui::SetItemTooltip("Sends this session's log (last_run.log) through Android's share menu, e.g. for a bug report.");
+#endif
     recomp::dev::debugSection();
     recomp::unused2::debugSection();
 }
