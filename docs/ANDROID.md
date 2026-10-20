@@ -70,7 +70,7 @@ compiler and setup reports it missing.
 | Program | `LuigisMansionRecomp(.exe)` | `libmain.so`, loaded by SDL's Java activity (`dev.lmport.LMActivity`), entry `SDL_main` (aurora::main; linked with `-u SDL_main`) |
 | Game module | `module.dll` / `module.so` (x86-64) | `module.so` for `aarch64-linux-android28`, same freestanding flags plus `-mno-outline-atomics` (no libgcc for the `__aarch64_*` helpers) and `-fsigned-char`; made read-only after the build (Android 14+ refuses writable code) |
 | Bundled compiler | `llvm/bin/clang` + `ld.lld` / `lld-link` | `lib/arm64-v8a/libllvm.so` in the APK: the `llvm-driver` multi-call binary, run as `libllvm.so clang ...` / `libllvm.so ld.lld ...` |
-| Compile jobs | one per hardware thread | also at most one per 1.5 GB of RAM (a large generated file can take over 1 GB; Android kills the app when memory runs out); `LM_COMPILE_JOBS` overrides |
+| Compile jobs | one per hardware thread | also at most one per 2.5 GB of RAM (a large generated file can take over 1 GB; Android kills the app when memory runs out); `LM_COMPILE_JOBS` overrides |
 | Settings, install.ini, modules, overlays, memory cards | `%APPDATA%` / XDG folders | `Context.getFilesDir()` (`LM_ANDROID_FILES`) |
 | GPU caches | `%APPDATA%` / `$XDG_CACHE_HOME` | `Context.getCacheDir()` (`LM_ANDROID_CACHE`) |
 | `pipelines.bin` | next to the executable | APK asset, copied to `files/res` on the first start of each app version (`LM_ANDROID_RES`) |
