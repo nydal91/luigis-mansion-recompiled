@@ -277,8 +277,14 @@ bool run(const Options& opts, LaunchInfo& launch) {
         ImGui::Text("Luigi's Mansion Recompiled");
         ImGui::Separator();
         if (screen == Screen::Pick) {
+#ifdef __ANDROID__
+            ImGui::TextWrapped("This port runs your own copy of Luigi's Mansion. Choose your disc image (ISO or RVZ). "
+                               "The game is translated and compiled on this device once; on a phone that takes "
+                               "several minutes. Keep the app open and the device plugged in.");
+#else
             ImGui::TextWrapped("This port runs your own copy of Luigi's Mansion. Choose your disc image (ISO or RVZ). "
                                "The game is translated and compiled for this PC once; that takes a minute or two.");
+#endif
             // Portable mode (docs/SETUP.md): where everything goes, or why it was not possible.
             if (const auto& loc = port::dataLocation(); loc.portable) {
                 const auto s = loc.root.u8string();
@@ -296,11 +302,11 @@ bool run(const Options& opts, LaunchInfo& launch) {
                 ImGui::Text("%s", labels[i]);
                 ImGui::SameLine();
                 if (*notes[i]) ImGui::TextDisabled("%s", notes[i]);
-                ImGui::TextWrapped("%s", slots[i].path.empty() ? "(none)" : slots[i].path.c_str());
+                ImGui::TextWrapped("%s", slots[i].path.empty() ? "(none)" : port::discDisplayName(slots[i].path).c_str());
                 if (ImGui::Button("Browse...")) browse(i, slots[i].path);
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__ANDROID__)
                 // Linux: the file dialog needs xdg-desktop-portal (or zenity/kdialog); a typed or
-                // pasted path always works (docs/LINUX.md).
+                // pasted path always works (docs/LINUX.md). (Android always has the system picker.)
                 {
                     static char typed[2][1024];
                     ImGui::SameLine();

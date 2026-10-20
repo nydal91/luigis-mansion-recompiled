@@ -25,6 +25,9 @@
 #include <mach-o/dyld.h>
 #include <sys/sysctl.h>
 #endif
+#ifdef __ANDROID__
+#include "port/android.h"
+#endif
 
 namespace port {
 namespace {
@@ -673,18 +676,44 @@ std::string requestDataMove(bool toPortable) {
 }
 
 std::filesystem::path configDir() {
+#ifdef __ANDROID__
+    return android::filesDir();  // settings, install.ini (docs/ANDROID.md)
+#endif
     const auto& l = dataLocation();
     return l.portable ? l.root : sysDir(Kind::Config, true);
 }
 
 std::filesystem::path dataDir() {
+#ifdef __ANDROID__
+    return android::filesDir();  // game modules, overlays, memory cards
+#endif
     const auto& l = dataLocation();
     return l.portable ? l.root : sysDir(Kind::Data, true);
 }
 
 std::filesystem::path cacheDir() {
+#ifdef __ANDROID__
+    return android::cacheDir();  // GPU pipeline caches (the system may clear them)
+#endif
     const auto& l = dataLocation();
     return l.portable ? l.root : sysDir(Kind::Cache, true);
+}
+
+std::string discOpenPath(const std::string& stored, std::string* error) {
+#ifdef __ANDROID__
+    return android::openDiscPath(stored, error);
+#else
+    (void)error;
+    return stored;
+#endif
+}
+
+std::string discDisplayName(const std::string& stored) {
+#ifdef __ANDROID__
+    return android::displayName(stored);
+#else
+    return stored;
+#endif
 }
 
 std::filesystem::path envPath(const char* name) {
@@ -909,6 +938,9 @@ void relaunch(bool setup, const std::filesystem::path& exePath) {
     } else if (!exePath.empty()) {
         return;  // the updater reports it
     }
+#elif defined(__ANDROID__)
+    (void)exePath;
+    android::relaunch(setup);  // a new activity instance; this process exits
 #else
     std::vector<char*> argv;
     for (auto& a : sArgs) argv.push_back(a.data());

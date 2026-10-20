@@ -22,6 +22,10 @@
 #include <windows.h>
 #include <dbghelp.h>
 #include <tlhelp32.h>
+#elif defined(__ANDROID__)
+// Android: the system's crash reporter (debuggerd) writes a symbolized tombstone and logcat
+// backtrace for fatal signals; this file only adds the reason line (docs/ANDROID.md).
+#include <unistd.h>
 #else
 #include <dirent.h>
 #include <dlfcn.h>
@@ -82,6 +86,8 @@ void printStackTo(std::FILE* out, const char* reason) {
         }
         std::fputc('\n', out);
     }
+#elif defined(__ANDROID__)
+    std::fflush(stderr);  // the system crash report (logcat / tombstone) has the stack
 #else
     // backtrace_symbols_fd writes "binary(symbol+off) [addr]" lines without allocating; the
     // executable's own functions are named only for exported symbols, so the offsets are
@@ -140,7 +146,7 @@ LONG WINAPI onException(EXCEPTION_POINTERS* info) {
     printStack(reason);
     return EXCEPTION_EXECUTE_HANDLER;
 }
-#else
+#elif !defined(__ANDROID__)
 // Fatal signals (Linux): report the signal, the faulting address, the instruction and the
 // binary it is in (e.g. the game module .so), then the stack. Runs on an alternate stack on
 // the main thread so a stack overflow there can still be reported. Afterwards the default
@@ -474,6 +480,14 @@ void startHangWatchdog() {
 }
 
 void installCrashHandler() {
+#ifdef __ANDROID__
+    // Leave SIGABRT and fatal signals to debuggerd (it symbolizes the stack); only name the reason.
+    std::set_terminate([] {
+        printStack("std::terminate");
+        std::abort();
+    });
+    return;
+#endif
     std::signal(SIGABRT, onAbort);
     std::set_terminate([] {
         aurora_pipeline_cache_note_crash();
@@ -486,7 +500,7 @@ void installCrashHandler() {
     AddVectoredExceptionHandler(1, onVectored);
     // Route CRT abort() through SIGABRT instead of an immediate fast-fail.
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
-#else
+#elif !defined(__ANDROID__)
     installSignalHandlers();
 #endif
 }

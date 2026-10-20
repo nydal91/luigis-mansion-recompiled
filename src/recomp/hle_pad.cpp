@@ -9,6 +9,7 @@
 #include "recomp/coop_test.h"
 #include "recomp/menu.h"
 #include "recomp/skip.h"
+#include "recomp/touch.h"
 #include "recomp/unused2.h"
 
 #include <dolphin/pad.h>
@@ -175,6 +176,7 @@ HLE(PADRead) {
     controls::beforeRead();  // port devices (hot-plug) and bindings from F1 > Controls
     const u32 motor = PADRead(st);
     controls::afterRead(st);  // dead zones, sensitivity; input test values
+    touch::apply(st);         // Android on-screen pad on port 1 (touch.h)
     logPad(st);
     if (menu::isOpen()) {  // the overlay menu owns input while open
         for (auto& s : st) {

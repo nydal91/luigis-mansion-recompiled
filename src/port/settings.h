@@ -24,7 +24,11 @@ struct VideoSettings {
     bool unlimitedFps = false;  // interpolated, as fast as the PC can (no frame-rate cap or schedule)
     bool matchDisplay = false;
     AspectMode aspect = AspectMode::Auto;
+#ifdef __ANDROID__
+    int resolutionScale = 2;    // phones: 2 x 480p by default (a phone's full resolution costs battery and heat)
+#else
     int resolutionScale = 0;    // internal render resolution: 0 = match window, N = N x 480p (aspect-widened)
+#endif
     float fovScale = 1.0f;      // multiplies the game's vertical field of view
     bool fullscreen = false;
     bool vsync = true;          // applied at next launch
@@ -91,6 +95,9 @@ struct AudioSettings {
 
 struct EnhancementSettings {
     bool showFps = false;
+    int touchControls = 1;      // Android on-screen pad: 0 off, 1 auto (hidden with a controller), 2 always
+    float touchScale = 1.0f;    // its size, 0.6..1.6
+    float touchOpacity = 0.5f;  // 0.1..1
     bool pauseOnFocusLoss = true;
     bool hiddenMansionPal = true;  // default Hidden Mansion rules for saves that have not chosen in E. Gadd's lab
     int palLanguage = 1;           // PAL game only: 1 English, 2 German, 3 French, 4 Spanish, 5 Italian (next launch)

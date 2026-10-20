@@ -1950,6 +1950,14 @@ void openTreesForCheck() {
 }
 
 bool isOpen() { return sOpen || recomp::dev::capturesInput(); }
+
+void toggle() {
+    sOpen = !sOpen;
+    if (!sOpen && sDirty) {
+        port::saveSettings();
+        sDirty = false;
+    }
+}
 bool quitRequested() { return sQuit; }
 
 void shutdown() {
@@ -1967,6 +1975,7 @@ void handleEvent(const SDL_Event& ev) {
     if (ev.type != SDL_EVENT_KEY_DOWN || ev.key.repeat) return;
     if (ev.key.key == SDLK_F1) sOpen = !sOpen;
     else if (ev.key.key == SDLK_ESCAPE && sOpen) sOpen = false;
+    else if (ev.key.key == SDLK_AC_BACK) sOpen = !sOpen;  // Android Back button (SDL_HINT_ANDROID_TRAP_BACK_BUTTON)
     if (!sOpen && sDirty) {
         port::saveSettings();
         sDirty = false;

@@ -17,6 +17,7 @@
 #include "recomp/controls.h"
 #include "recomp/dsu.h"
 #include "recomp/ui_scale.h"
+#include "recomp/touch.h"
 
 #include "port/settings.h"
 
@@ -1467,6 +1468,10 @@ bool drawTab() {
         }
         if (ImGui::BeginTabItem("DSU", nullptr, subTabFlags("DSU"))) {
             local |= dsu::drawTab();
+            ImGui::EndTabItem();
+        }
+        if (touch::supported() && ImGui::BeginTabItem("Touch", nullptr, subTabFlags("Touch"))) {
+            local |= touch::drawSettings();  // a plain setting (settings.ini [enhancements])
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
