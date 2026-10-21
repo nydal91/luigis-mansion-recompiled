@@ -30,6 +30,7 @@
 #include "recomp/precache.h"
 #include "recomp/runtime.h"
 #include "recomp/sched.h"
+#include "recomp/skip.h"
 #include "recomp/touch.h"
 #include "recomp/widescreen.h"
 #ifndef LM_STATIC_MODULE
@@ -53,6 +54,7 @@ u32 copyDispCount();  // hle_gx.cpp
 #ifdef __APPLE__
 void hideWindowMacos(SDL_Window* w);  // macos_window.cpp
 #endif
+u32 viRetraceCount();  // hle_vi.cpp
 #ifdef LM_STATIC_MODULE
 extern const GameModule kGameModule;  // generated func_table.cpp, linked in (lmrecomp)
 #endif
@@ -417,6 +419,25 @@ int main(int argc, char* argv[]) {
     std::printf("Opened %s (%s)\n", disc.c_str(), discId);
 
     frame::start(&boot);
+#ifdef __ANDROID__
+    // Diagnostics for shared logs (docs/ANDROID.md): when the game itself runs below 10 frames
+    // a second for 10 s (not paused), dump where every guest thread waits, a few times per run.
+    std::thread([] {
+        u32 last = skip::guestFrames();
+        int dumps = 0;
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::seconds(10));
+            const u32 now = skip::guestFrames();
+            const u32 frames = now - last;
+            last = now;
+            if (frames > 0 && frames < 100 && dumps < 4) {
+                dumps++;
+                log("[slow] %u game frames in 10 s, retrace %u: guest threads", frames, viRetraceCount());
+                sched::dumpThreads();
+            }
+        }
+    }).detach();
+#endif
     if (std::getenv("LM_WATCHDOG")) {
         std::thread([] {
             for (;;) {
