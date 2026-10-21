@@ -51,6 +51,7 @@ public class LMActivity extends SDLActivity {
             Os.setenv("AURORA_GPU_PROFILE", "10", false);
             final File res = new File(getFilesDir(), "res");
             copyAssets(res);
+            saveCrashLog();
             Os.setenv("LM_ANDROID_RES", res.getAbsolutePath(), true);
         } catch (Exception e) {
             Log.e(TAG, "setup of the native environment failed", e);
@@ -106,6 +107,37 @@ public class LMActivity extends SDLActivity {
         }
         try (OutputStream os = new FileOutputStream(stamp)) {
             os.write(want.getBytes("UTF-8"));
+        }
+    }
+
+    /**
+     * If the last run did not end normally (files/session_active is still there: crash, freeze,
+     * the app killed), copies its log (files/last_run.log, before the native side renames it) to
+     * Downloads/LuigisMansionPort, where the player can find and send it.
+     */
+    private void saveCrashLog() {
+        final File marker = new File(getFilesDir(), "session_active");
+        final File log = new File(getFilesDir(), "last_run.log");
+        if (!marker.exists() || !log.exists() || Build.VERSION.SDK_INT < 29) return;
+        marker.delete();
+        try {
+            final String name = "LuigisMansionPort-" +
+                    new java.text.SimpleDateFormat("yyyy-MM-dd-HHmmss", java.util.Locale.ROOT)
+                            .format(new java.util.Date(log.lastModified())) + ".log";
+            final android.content.ContentValues v = new android.content.ContentValues();
+            v.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name);
+            v.put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain");
+            v.put(android.provider.MediaStore.Downloads.RELATIVE_PATH, "Download/LuigisMansionPort");
+            final Uri uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+            if (uri == null) return;
+            try (InputStream in = new java.io.FileInputStream(log);
+                 OutputStream out = getContentResolver().openOutputStream(uri)) {
+                byte[] buf = new byte[1 << 16];
+                for (int n; (n = in.read(buf)) > 0;) out.write(buf, 0, n);
+            }
+            Log.i(TAG, "log of the last run saved to Download/LuigisMansionPort/" + name);
+        } catch (Exception e) {
+            Log.w(TAG, "could not save the last run's log", e);
         }
     }
 

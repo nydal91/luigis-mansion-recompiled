@@ -349,6 +349,9 @@ int main(int argc, char* argv[]) {
     if (!setup::run(so, launch)) {
         port::recovery::onExit();
         aurora_shutdown();
+#ifdef __ANDROID__
+        port::android::sessionEnded();
+#endif
         std::_Exit(0);
     }
     const std::string disc = launch.disc;
@@ -586,5 +589,8 @@ int main(int argc, char* argv[]) {
     audio::outShutdown();
     aurora_shutdown();
     port::recovery::onExit();
+#ifdef __ANDROID__
+    port::android::sessionEnded();
+#endif
     std::_Exit(0);
 }
