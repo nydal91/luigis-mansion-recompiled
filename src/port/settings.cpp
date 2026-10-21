@@ -418,7 +418,29 @@ void loadSettings() {
     std::ifstream in(settingsFile());
     if (!in) return;
     struct LogAfter {
-        ~LogAfter() { logSettings("loaded"); }
+        ~LogAfter() {
+#ifdef __ANDROID__
+            // Once per install: settings saved by earlier Android builds had the PC's accuracy
+            // defaults; switch the costly ones to the phone defaults (kPcDefault) one time.
+            const auto marker = std::filesystem::path(settingsPath()).parent_path() / "phone_defaults_v1";
+            std::error_code ec;
+            if (!std::filesystem::exists(marker, ec)) {
+                auto& r = sSettings.rendering;
+                const RenderingSettings d{};
+                r.integerTev = d.integerTev;
+                r.efbColorDepth = d.efbColorDepth;
+                r.efbBlend6 = d.efbBlend6;
+                r.earlyZAlphaDepth = d.earlyZAlphaDepth;
+                r.efbCopyToRam = d.efbCopyToRam;
+                r.gpuKeepWarm = d.gpuKeepWarm;
+                r.shadowRenderResolution = d.shadowRenderResolution;
+                r.shadowAnyDistance = d.shadowAnyDistance;
+                std::ofstream(marker) << "1\n";
+                saveSettings();
+            }
+#endif
+            logSettings("loaded");
+        }
     } logAfter;
     auto table = fields();
     std::string line, section;

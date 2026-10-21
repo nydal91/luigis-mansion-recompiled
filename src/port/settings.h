@@ -149,17 +149,24 @@ struct GameplaySettings {
 
 // Hardware-accuracy rendering features (F1 > Visuals > Rendering). Every costly accuracy
 // feature gets a flag here, ON by default (best quality); weaker PCs can turn them off.
+// Costly accuracy features are on by default on PC and off on phones (docs/ANDROID.md: on a
+// phone GPU they cost tens of milliseconds per frame); F1 > Visuals > Rendering turns them on.
+#ifdef __ANDROID__
+constexpr bool kPcDefault = false;
+#else
+constexpr bool kPcDefault = true;
+#endif
 struct RenderingSettings {
     // Integer TEV: the color combiner computes with the hardware's 8-bit inputs, signed 11-bit
     // registers and per-stage rounding instead of floats (Aurora GX_AURORA_ACCURACY_INT_TEV).
-    bool integerTev = true;
+    bool integerTev = kPcDefault;
     // EFB color depth: pixels are stored the way the game's RGBA6 framebuffer stores them,
     // 6 bits per channel with the ordered dither the game enables (GX_AURORA_ACCURACY_EFB_DEPTH).
-    bool efbColorDepth = true;
+    bool efbColorDepth = kPcDefault;
     // 6-bit blending: with efbColorDepth, blended draws (the flashlight beam, glows, HUD edges)
     // are stored like the console's RGBA6 framebuffer stores them, the blend result dithered and
     // truncated to 6 bits (GX_AURORA_ACCURACY_EFB_BLEND, Aurora 0176).
-    bool efbBlend6 = true;
+    bool efbBlend6 = kPcDefault;
     // Smooth color banding (enhancement, OFF = vanilla-accurate): with efbColorDepth, the 6-bit
     // framebuffer and the game's RGB565 screen copy store the local average of the console's
     // 6/5-bit result instead of its steps, so gradients keep the same brightness and tint without
@@ -170,7 +177,7 @@ struct RenderingSettings {
     // Early Z writes depth for alpha-tested pixels: draws that compare Z before texturing
     // (GXSetZCompLoc(GX_TRUE)) update Z even where the alpha test then rejects the pixel, as the
     // hardware does (GX_AURORA_ACCURACY_EARLY_Z, Aurora 0170/0179: depth-only pass + colour pass).
-    bool earlyZAlphaDepth = true;
+    bool earlyZAlphaDepth = kPcDefault;
     // Display copy filter: the vertical filter (and gamma) GXCopyDisp applies on the way to the TV.
     bool displayCopyFilter = true;
     // Texture copy filter: the same vertical filter applied to the game's GXCopyTex copies (the
@@ -180,7 +187,7 @@ struct RenderingSettings {
     // GXCopyTex results also exist as GX-format bytes in main memory, so textures that read a
     // copy with another format/size (the shadow depth map) and CPU reads see what the
     // console sees (docs/RENDERING.md). Off: copies stay GPU-only textures.
-    bool efbCopyToRam = true;
+    bool efbCopyToRam = kPcDefault;
     // Vertex data each draw indexes is copied when the game issues the draw (as the console's GPU
     // reads it then), not when Aurora's FIFO thread gets to it; fixes Luigi's rare mouth/hose
     // flicker (CPU/GPU timing race; docs/RENDERING.md "Vertex snapshots"). Interpolated frame
@@ -188,17 +195,17 @@ struct RenderingSettings {
     bool vtxSnapshot = true;
     // Keep the GPU clocks up when a frame is much lighter than play (menus over a still picture):
     // filler GPU work so the first frames after it are not 5-7x slower (pacing.cpp, Aurora 0215).
-    bool gpuKeepWarm = true;
+    bool gpuKeepWarm = kPcDefault;
     // Shadows (docs/RENDERING.md, "Shadows"). The game's shadow map (light's-view depth, copied
     // as Z16 and compared in the TEV) at the internal render resolution instead of 640x480.
-    bool shadowRenderResolution = true;
+    bool shadowRenderResolution = kPcDefault;
     // Widescreen: the shadow light's frustum is widened by the same factor as the view, so
     // shadows reach the extra side areas (the game only covers what a 4:3 screen shows).
     bool shadowWidescreen = true;
     // The game's shadow light only covers a depth band around Luigi (e.g. 619..2322 units from the
     // room light), so shadows vanish on things farther away. On: the band is extended to what the
     // player's view shows (enhancement). Off: the original range.
-    bool shadowAnyDistance = true;
+    bool shadowAnyDistance = kPcDefault;
 };
 
 // ---- Enhanced lighting > Ghost lights (src/recomp/ghost_lights.cpp; docs/RENDERING.md) ----
