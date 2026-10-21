@@ -66,6 +66,9 @@ void redirectOutput() {
     const auto dir = filesDir();
     std::error_code ec;
     std::filesystem::rename(dir / "last_run.log", dir / "previous_run.log", ec);
+    // Removed by sessionEnded() on a normal exit; still there after a crash, so LMActivity copies
+    // the log to Downloads on the next start.
+    std::fclose(std::fopen((dir / "session_active").c_str(), "w"));
     FILE* file = std::fopen((dir / "last_run.log").c_str(), "w");
     dup2(fds[1], STDOUT_FILENO);
     dup2(fds[1], STDERR_FILENO);
@@ -214,6 +217,12 @@ void startPerfLog() {
     }).detach();
 }
 
+void sessionEnded() {
+    std::fflush(nullptr);
+    std::error_code ec;
+    std::filesystem::remove(filesDir() / "session_active", ec);
+}
+
 void shareLog() {
     std::fflush(stdout);
     withActivity([&](JNIEnv* env, jclass cls) -> int {
@@ -223,6 +232,7 @@ void shareLog() {
 }
 
 void relaunch(bool setup) {
+    sessionEnded();
     withActivity([&](JNIEnv* env, jclass cls) -> int {
         if (jmethodID m = env->GetStaticMethodID(cls, "relaunch", "(Z)V"))
             env->CallStaticVoidMethod(cls, m, jboolean(setup));

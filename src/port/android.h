@@ -37,6 +37,9 @@ std::string displayName(const std::string& stored);
 // ("[perf]" lines), to tell a slow phone, a hot one and a stalled game apart in shared logs.
 void startPerfLog();
 
+// A normal exit: the log need not be saved to Downloads on the next start (redirectOutput).
+void sessionEnded();
+
 // Opens the system share sheet with last_run.log (to send it to someone).
 void shareLog();
 
