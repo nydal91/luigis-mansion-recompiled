@@ -352,7 +352,23 @@ bool tab(const char* name) {
     return ImGui::BeginTabItem(name, nullptr, select ? ImGuiTabItemFlags_SetSelected : 0);
 }
 
-void applyResolution() { VISetFrameBufferScale(float(port::settings().video.resolutionScale)); }
+#ifdef __ANDROID__
+// Phones: at most 3x (1440 lines, above any phone screen's height). "Match window" (0) is
+// replaced by 2x: higher internal resolutions cost a phone GPU tens of milliseconds per frame.
+constexpr int kMaxResolutionScale = 3;
+#else
+constexpr int kMaxResolutionScale = 8;
+#endif
+
+void applyResolution() {
+    int& rs = port::settings().video.resolutionScale;
+#ifdef __ANDROID__
+    if (rs <= 0) rs = 2;
+#endif
+    rs = std::min(rs, kMaxResolutionScale);
+    VISetFrameBufferScale(float(rs));
+    std::printf("[settings] render resolution %dx\n", rs);
+}
 
 void applyWindowSettings() {
     const auto& v = port::settings().video;
@@ -1525,7 +1541,12 @@ void visualsTab() {
             const int w = int(float(h) * std::max(aspect, 4.0f / 3.0f) + 0.5f);
             std::snprintf(label, sizeof(label), "%dx  (%d x %d)", rs, w, h);
         }
-        if (recomp::menu::SliderInt("Render resolution", &rs, 0, 8, label, ImGuiSliderFlags_AlwaysClamp)) {
+#ifdef __ANDROID__
+        const int minScale = 1;  // no "Match window" on phones (applyResolution)
+#else
+        const int minScale = 0;
+#endif
+        if (recomp::menu::SliderInt("Render resolution", &rs, minScale, kMaxResolutionScale, label, ImGuiSliderFlags_AlwaysClamp)) {
             sDirty = true;
             applyResolution();
         }

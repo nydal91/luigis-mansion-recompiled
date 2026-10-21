@@ -303,6 +303,7 @@ std::vector<Field> fields() {
 }
 
 void writeSettings(std::ostream& out);
+void logSettings(const char* when);
 
 template <typename T>
 void clampTo(T& v, T lo, T hi) {
@@ -461,6 +462,9 @@ void loadSettings() {
     }
     std::ifstream in(settingsFile());
     if (!in) return;
+    struct LogAfter {
+        ~LogAfter() { logSettings("loaded"); }
+    } logAfter;
     auto table = fields();
     std::string line, section;
     while (std::getline(in, line)) {
@@ -499,7 +503,30 @@ void resetSettingsToDefaults() {
     saveSettings();
 }
 
+namespace {
+// Shared logs (Android "Share log") should say which settings a run used: the video and
+// rendering sections and the enhanced-lighting master switch, as written to settings.ini.
+void logSettings(const char* when) {
+    std::ostringstream all;
+    writeSettings(all);
+    std::istringstream in(all.str());
+    std::string line, section, out;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line[0] == '[') {
+            section = line;
+            continue;
+        }
+        if (section == "[video]" || section == "[rendering]" ||
+            (section == "[enhanced_lighting]" && line.rfind("enabled=", 0) == 0))
+            out += " " + section.substr(1, section.size() - 2) + "." + line;
+    }
+    std::printf("[settings] %s:%s\n", when, out.c_str());
+    std::fflush(stdout);
+}
+}  // namespace
+
 void saveSettings() {
+    logSettings("saved");
     // Written to a temporary file and renamed over settings.ini, so a crash or power loss while
     // saving never leaves a truncated file (which would reset every setting on the next launch).
     const std::filesystem::path path = settingsFile(), tmp = std::filesystem::path(path) += ".tmp";
