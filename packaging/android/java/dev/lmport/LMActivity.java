@@ -111,33 +111,43 @@ public class LMActivity extends SDLActivity {
     }
 
     /**
-     * If the last run did not end normally (files/session_active is still there: crash, freeze,
-     * the app killed), copies its log (files/last_run.log, before the native side renames it) to
-     * Downloads/LuigisMansionPort, where the player can find and send it.
+     * Copies the previous run's log (files/last_run.log, before the native side renames it) to
+     * Download/LuigisMansionPort/previous_run.log on every start, replacing the last copy, so a
+     * player can send the log of a run that crashed or froze without any extra tools.
      */
     private void saveCrashLog() {
-        final File marker = new File(getFilesDir(), "session_active");
         final File log = new File(getFilesDir(), "last_run.log");
-        if (!marker.exists() || !log.exists() || Build.VERSION.SDK_INT < 29) return;
-        marker.delete();
+        if (!log.exists() || log.length() == 0 || Build.VERSION.SDK_INT < 29) return;
+        final android.content.ContentResolver cr = getContentResolver();
+        final Uri downloads = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+        final String dir = "Download/LuigisMansionPort/";
+        final String name = "previous_run.log";
         try {
-            final String name = "LuigisMansionPort-" +
-                    new java.text.SimpleDateFormat("yyyy-MM-dd-HHmmss", java.util.Locale.ROOT)
-                            .format(new java.util.Date(log.lastModified())) + ".log";
+            // Our earlier copy (an app may delete the files it created).
+            cr.delete(downloads,
+                    android.provider.MediaStore.Downloads.DISPLAY_NAME + "=? AND " +
+                            android.provider.MediaStore.Downloads.RELATIVE_PATH + "=?",
+                    new String[] {name, dir});
+        } catch (Exception e) {
+            Log.w(TAG, "could not remove the old log copy", e);
+        }
+        try {
             final android.content.ContentValues v = new android.content.ContentValues();
             v.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name);
             v.put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain");
-            v.put(android.provider.MediaStore.Downloads.RELATIVE_PATH, "Download/LuigisMansionPort");
-            final Uri uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
-            if (uri == null) return;
-            try (InputStream in = new java.io.FileInputStream(log);
-                 OutputStream out = getContentResolver().openOutputStream(uri)) {
+            v.put(android.provider.MediaStore.Downloads.RELATIVE_PATH, dir);
+            final Uri uri = cr.insert(downloads, v);
+            if (uri == null) {
+                Log.w(TAG, "MediaStore refused the log copy");
+                return;
+            }
+            try (InputStream in = new java.io.FileInputStream(log); OutputStream out = cr.openOutputStream(uri)) {
                 byte[] buf = new byte[1 << 16];
                 for (int n; (n = in.read(buf)) > 0;) out.write(buf, 0, n);
             }
-            Log.i(TAG, "log of the last run saved to Download/LuigisMansionPort/" + name);
+            Log.i(TAG, "previous run's log saved to " + dir + name);
         } catch (Exception e) {
-            Log.w(TAG, "could not save the last run's log", e);
+            Log.w(TAG, "could not save the previous run's log", e);
         }
     }
 
