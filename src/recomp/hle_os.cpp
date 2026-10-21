@@ -114,11 +114,17 @@ std::unordered_map<u32, u32> sAlarmGen;  // alarm -> generation of its pending e
 using AlarmClock = std::chrono::steady_clock;
 std::unordered_map<u32, AlarmClock::time_point> sAlarmFired;  // alarm -> when it last expired
 
-void armAlarm(u32 alarm, u64 ticks, u32 handler, u64 period) {
+void armAlarm(u32 alarm, s64 ticks, u32 handler, u64 period) {
+    // OSTime is signed: an alarm set for a time already past (the European frame pacer after a
+    // long frame, e.g. a room load) fires at once on the console. As an unsigned delay it was
+    // ~2^64 ticks, a double the duration_cast below cannot hold: x86 converts it to INT64_MIN
+    // (fires at once, by luck), ARM saturates to INT64_MAX, and the game stayed at ~7 fps from
+    // then on (Android, docs/ANDROID.md).
+    if (ticks < 0) ticks = 0;
     // Fast-forward (skip.h) speeds alarms up like it speeds up retraces.
     const double speed = std::max(1.0, skip::retraceSpeed());
     const auto delay = std::chrono::duration_cast<AlarmClock::duration>(
-        std::chrono::duration<double>(double(ticks) / kTimerClock / speed));
+        std::chrono::duration<double>(std::min(double(ticks) / kTimerClock / speed, 86400.0)));  // no overflow
     const auto now = AlarmClock::now();
     auto when = now + delay;
     u32 gen;
@@ -144,7 +150,7 @@ void armAlarm(u32 alarm, u64 ticks, u32 handler, u64 period) {
             if (sAlarmGen[alarm] != gen) return;  // cancelled or re-armed
             sAlarmFired[alarm] = when;
         }
-        if (period) armAlarm(alarm, period, handler, period);
+        if (period) armAlarm(alarm, s64(period), handler, period);
         guestCall(c, handler, alarm, 0);
     });
 }
@@ -156,11 +162,12 @@ HLE(OSCreateAlarm) {
     ++sAlarmGen[c.r[3]];
     sAlarmFired.erase(c.r[3]);
 }
-HLE(OSSetAlarm) { armAlarm(c.r[3], u64(c.r[5]) << 32 | c.r[6], c.r[7], 0); }
+HLE(OSSetAlarm) { armAlarm(c.r[3], s64(u64(c.r[5]) << 32 | c.r[6]), c.r[7], 0); }
 HLE(OSSetPeriodicAlarm) {
-    // (alarm, u64 start r5:r6, u64 period r7:r8, handler r9); start is absolute time.
-    const u64 now = timeBase(), start = u64(c.r[5]) << 32 | c.r[6], period = u64(c.r[7]) << 32 | c.r[8];
-    armAlarm(c.r[3], start > now ? start - now : 0, c.r[9], period ? period : 1);
+    // (alarm, s64 start r5:r6, s64 period r7:r8, handler r9); start is absolute time.
+    const s64 now = s64(timeBase()), start = s64(u64(c.r[5]) << 32 | c.r[6]);
+    const s64 period = s64(u64(c.r[7]) << 32 | c.r[8]);
+    armAlarm(c.r[3], start > now ? start - now : 0, c.r[9], period > 0 ? u64(period) : 1);
 }
 HLE(OSCancelAlarm) {
     std::lock_guard lk(sAlarmM);
