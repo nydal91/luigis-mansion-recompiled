@@ -1514,6 +1514,10 @@ State state() {
 }
 
 void startupCheck() {
+#ifdef __ANDROID__
+    ulog("Android: no updater (new versions come as a new APK; docs/ANDROID.md)");
+    return;
+#endif
     if (!port::settings().updates.checkAtStartup) {
         ulog("startup check off (F1 > Game)");
         return;

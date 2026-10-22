@@ -280,6 +280,9 @@ void dumpAllThreads(const char* reason) {
     std::fprintf(stderr, "=== end of thread stacks ===\n");
     std::fflush(stderr);
 }
+#elif defined(__ANDROID__)
+// Android: no thread dump of our own (debuggerd's tombstone has every thread's stack).
+void dumpAllThreads(const char*) {}
 #else
 // Linux (issue #11: a Steam Deck log said nothing about where the game stopped): each thread is
 // sent a signal whose handler writes its own backtrace ("binary(symbol+off) [addr]" lines, without

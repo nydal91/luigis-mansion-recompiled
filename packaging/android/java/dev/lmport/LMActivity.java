@@ -45,10 +45,6 @@ public class LMActivity extends SDLActivity {
             Os.setenv("LM_ANDROID_LIBDIR", getApplicationInfo().nativeLibraryDir, true);
             Os.setenv("HOME", files, true);
             Os.setenv("TMPDIR", getCacheDir().getAbsolutePath(), true);
-            // Performance lines in the log (frame rate every 2 s, GPU time per pass every 10 s),
-            // so a shared log (F1 > Enhancements > Debug > Share log) shows where time goes.
-            Os.setenv("LM_FPS_LOG", "1", false);
-            Os.setenv("AURORA_GPU_PROFILE", "10", false);
             final File res = new File(getFilesDir(), "res");
             copyAssets(res);
             saveCrashLog();
