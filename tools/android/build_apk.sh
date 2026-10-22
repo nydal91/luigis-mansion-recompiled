@@ -2,7 +2,7 @@
 # Packages build/android-arm64/libmain.so into an installable APK (docs/ANDROID.md).
 #
 #   ANDROID_HOME=<SDK with build-tools 37 and platforms;android-35> \
-#   LM_ANDROID_LLVM=<libllvm.so from tools/android/build_llvm.sh> \
+#   [LM_ANDROID_LLVM=<libllvm.so; default build/android-llvm/libllvm.so from build_llvm.sh>] \
 #   tools/android/build_apk.sh [out.apk]
 #
 # No Gradle: aapt2, javac, d8, zipalign and apksigner from the SDK. Signs with
@@ -56,10 +56,16 @@ javac -nowarn -source 8 -target 8 -encoding UTF-8 -bootclasspath "$platform" -cl
 cp "$build/libmain.so" "$work/apk/lib/arm64-v8a/libmain.so"
 "${ANDROID_NDK:-$ANDROID_HOME/ndk-bundle}"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip \
     "$work/apk/lib/arm64-v8a/libmain.so" 2>/dev/null || strip "$work/apk/lib/arm64-v8a/libmain.so" 2>/dev/null || true
-if [ -n "${LM_ANDROID_LLVM:-}" ]; then
-    cp "$LM_ANDROID_LLVM" "$work/apk/lib/arm64-v8a/libllvm.so"
+# Default: tools/android/build_llvm.sh's output. LM_ANDROID_LLVM=none builds an APK without it
+# (setup then cannot build the game on the device).
+llvm="${LM_ANDROID_LLVM:-$root/build/android-llvm/libllvm.so}"
+if [ "$llvm" = none ]; then
+    echo "warning: no compiler in the APK: setup cannot build the game on the device" >&2
+elif [ -f "$llvm" ]; then
+    cp "$llvm" "$work/apk/lib/arm64-v8a/libllvm.so"
 else
-    echo "warning: LM_ANDROID_LLVM not set: the APK has no compiler, so setup cannot build the game on the device" >&2
+    echo "No compiler at $llvm: run tools/android/build_llvm.sh, set LM_ANDROID_LLVM, or LM_ANDROID_LLVM=none" >&2
+    exit 1
 fi
 
 cp "$work/base.apk" "$work/unsigned.apk"
