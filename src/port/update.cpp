@@ -1443,7 +1443,7 @@ void forwardOldLauncher(const fs::path& dir) {
 bool sameOrInside(const fs::path& p, const fs::path& dir) {
     const fs::path a = p.lexically_normal(), b = dir.lexically_normal();
     auto it = a.begin();
-    for (auto& part : b) {
+    for (const auto& part : b) {
         if (part.empty()) continue;  // trailing separator of dir
         if (it == a.end()) return false;
 #ifdef _WIN32
@@ -1503,6 +1503,10 @@ State state() {
 }
 
 void startupCheck() {
+#ifdef __ANDROID__
+    ulog("Android: no updater (new versions come as a new APK; docs/ANDROID.md)");
+    return;
+#endif
     if (!port::settings().updates.checkAtStartup) {
         ulog("startup check off (F1 > Game)");
         return;

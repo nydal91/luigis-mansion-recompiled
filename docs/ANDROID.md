@@ -90,6 +90,10 @@ module itself is loaded with `dlopen`, which is allowed from the data folder.
 The JNI calls from native code (`src/port/android.cpp`) go to static methods of
 `LMActivity` through the class of `SDL_GetAndroidActivity()`, which works on any thread.
 
+The menus use the port's menu size (F1 > Visuals > General > Menu size, `ui_scale.cpp`): its
+Auto measures the window in ImGui units, which SDL already scales by the screen density on
+phones. The updater (`update.cpp`) is off: new versions come as a new APK.
+
 Plain `char` is signed on x86 but unsigned on ARM, so the runtime and the module are built
 with `-fsigned-char` to behave as the port does on PC.
 
