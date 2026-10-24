@@ -214,6 +214,154 @@ public class LMActivity extends SDLActivity {
         }});
     }
 
+    // ---- Texture packs (src/recomp/texture_pack.cpp) ----
+
+    private static final int REQ_TEXTURE_ZIP = 7101;
+    private static final int REQ_TEXTURE_DIR = 7102;
+    private static String sTextureDest;
+    // 0 idle, 1 running, 2 done, 3 failed (port::android::ImportState)
+    private static volatile int sTexState = 0;
+    private static volatile int sTexCount = 0;
+    private static volatile String sTexMessage = "";
+
+    /** Opens the system picker for a texture pack .zip or folder; the copy starts when one is chosen. */
+    public static void pickTexturePack(final boolean folder, final String destDir) {
+        if (sSelf == null) return;
+        sTextureDest = destDir;
+        sSelf.runOnUiThread(new Runnable() { @Override public void run() {
+            final Intent i;
+            if (folder) {
+                i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            } else {
+                i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("*/*");
+                i.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"application/zip", "application/x-zip-compressed", "application/octet-stream"});
+            }
+            try {
+                sSelf.startActivityForResult(i, folder ? REQ_TEXTURE_DIR : REQ_TEXTURE_ZIP);
+            } catch (Exception e) {
+                sTexState = 3;
+                sTexMessage = "No file picker available: " + e;
+            }
+        }});
+    }
+
+    /** "<state>|<count>|<message>" for the native side. */
+    public static String texturePackStatus() {
+        return sTexState + "|" + sTexCount + "|" + sTexMessage;
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode != REQ_TEXTURE_ZIP && requestCode != REQ_TEXTURE_DIR) {
+            super.onActivityResult(requestCode, resultCode, data);
+            return;
+        }
+        final Uri uri = data != null ? data.getData() : null;
+        if (resultCode != RESULT_OK || uri == null || sTextureDest == null) {
+            sTexState = 0;
+            return;
+        }
+        final boolean folder = requestCode == REQ_TEXTURE_DIR;
+        sTexState = 1;
+        sTexCount = 0;
+        sTexMessage = "";
+        new Thread(new Runnable() { @Override public void run() {
+            try {
+                final int n = folder ? importTextureFolder(uri) : importTextureZip(uri);
+                sTexMessage = n > 0 ? "Imported " + n + " texture files."
+                                    : "No texture files (tex1_*.png / .dds) found in what you picked.";
+                sTexState = n > 0 ? 2 : 3;
+            } catch (Throwable t) {
+                Log.e(TAG, "texture pack import failed", t);
+                sTexMessage = "Import failed: " + t.getMessage();
+                sTexState = 3;
+            }
+        }}, "texture-import").start();
+    }
+
+    // Texture files only: tex1_*.png / tex1_*.dds (Dolphin's naming; mip sidecars included).
+    private static boolean isTextureName(String name) {
+        final String n = name.toLowerCase(java.util.Locale.ROOT);
+        return n.startsWith("tex1_") && (n.endsWith(".png") || n.endsWith(".dds"));
+    }
+
+    // A folder name for the pack from what the player picked (no path separators).
+    private static File packDir(String label) {
+        String name = label == null ? "" : label.replaceAll("\\.(zip|ZIP)$", "").replaceAll("[^A-Za-z0-9 ._()-]", "_").trim();
+        if (name.isEmpty() || name.startsWith(".")) name = "pack";
+        final File dir = new File(sTextureDest, name);
+        deleteTree(dir);  // importing the same pack again replaces it
+        dir.mkdirs();
+        return dir;
+    }
+
+    private static void deleteTree(File f) {
+        final File[] kids = f.listFiles();
+        if (kids != null) for (File k : kids) deleteTree(k);
+        f.delete();
+    }
+
+    // Writes one texture by its bare file name (flat: names are unique by content hash, and no
+    // path from the archive is used, so nothing can land outside the pack folder).
+    private static void writeTexture(File dir, String name, InputStream in, byte[] buf) throws Exception {
+        final File tmp = new File(dir, name + ".part");
+        try (OutputStream os = new FileOutputStream(tmp)) {
+            for (int n; (n = in.read(buf)) > 0;) os.write(buf, 0, n);
+        }
+        if (!tmp.renameTo(new File(dir, name))) throw new java.io.IOException("could not write " + name);
+        sTexCount++;
+    }
+
+    private static int importTextureZip(Uri uri) throws Exception {
+        final File dir = packDir(contentDisplayName(uri.toString()));
+        final byte[] buf = new byte[1 << 16];
+        try (InputStream raw = sSelf.getContentResolver().openInputStream(uri);
+             java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(new java.io.BufferedInputStream(raw, 1 << 16))) {
+            for (java.util.zip.ZipEntry e; (e = zip.getNextEntry()) != null;) {
+                if (e.isDirectory()) continue;
+                String name = e.getName();
+                name = name.substring(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1);
+                if (isTextureName(name)) writeTexture(dir, name, zip, buf);
+            }
+        }
+        return sTexCount;
+    }
+
+    private static int importTextureFolder(Uri tree) throws Exception {
+        final ContentResolver cr = sSelf.getContentResolver();
+        final String rootId = android.provider.DocumentsContract.getTreeDocumentId(tree);
+        String label = rootId.substring(rootId.lastIndexOf(':') + 1);
+        label = label.substring(label.lastIndexOf('/') + 1);
+        final File dir = packDir(label);
+        final byte[] buf = new byte[1 << 16];
+        final java.util.ArrayDeque<String> pending = new java.util.ArrayDeque<>();
+        pending.add(rootId);
+        while (!pending.isEmpty()) {
+            final String id = pending.poll();
+            final Uri children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, id);
+            try (Cursor c = cr.query(children, new String[] {
+                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null)) {
+                if (c == null) continue;
+                while (c.moveToNext()) {
+                    final String childId = c.getString(0), name = c.getString(1), mime = c.getString(2);
+                    if (android.provider.DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
+                        pending.add(childId);
+                    } else if (name != null && isTextureName(name) && name.indexOf('/') < 0) {
+                        final Uri doc = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, childId);
+                        try (InputStream in = cr.openInputStream(doc)) {
+                            writeTexture(dir, name, in, buf);
+                        }
+                    }
+                }
+            }
+        }
+        return sTexCount;
+    }
+
     /**
      * Restarts the game in a new process (after setup changes; F1 > Game). A small activity
      * in its own process (LMRestartActivity) starts the game again once this process is gone.

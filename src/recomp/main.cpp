@@ -17,6 +17,7 @@
 #include "port/recovery.h"
 #include "port/settings.h"
 #include "port/update.h"
+#include "recomp/texture_pack.h"
 #include "recomp/audio.h"
 #include "recomp/cpu_qos.h"
 #include "recomp/mem_report.h"
@@ -333,6 +334,7 @@ int main(int argc, char* argv[]) {
     // LM_MAXIMIZE=1 (testing): open the window maximized, as players often run it.
     if (std::getenv("LM_MAXIMIZE"))
         if (SDL_Window* w = aurora_get_window()) SDL_MaximizeWindow(w);
+    texture_pack::init();  // custom textures from <data>/textures (before any game texture is used)
     precache::init();
     ws::init();
     port::setPhase("loading the game");

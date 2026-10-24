@@ -43,6 +43,18 @@ void sessionEnded();
 // Opens the system share sheet with last_run.log (to send it to someone).
 void shareLog();
 
+// Texture packs (src/recomp/texture_pack.cpp): opens the system picker for a .zip (folder=false)
+// or a folder (folder=true); LMActivity then copies the texture files (tex1_*.png/.dds) into
+// destDir/<pack name> on its own thread. Progress through texturePackImportStatus().
+void pickTexturePack(bool folder, const std::string& destDir);
+enum class ImportState { Idle = 0, Running = 1, Done = 2, Failed = 3 };
+struct ImportStatus {
+    ImportState state = ImportState::Idle;
+    int count = 0;        // texture files copied so far
+    std::string message;  // result or error for the player
+};
+ImportStatus texturePackImportStatus();
+
 // Restarts the app (optionally on the setup screen); does not return.
 [[noreturn]] void relaunch(bool setup);
 

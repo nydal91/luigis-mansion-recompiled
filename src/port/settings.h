@@ -207,6 +207,8 @@ struct RenderingSettings {
     // room light), so shadows vanish on things farther away. On: the band is extended to what the
     // player's view shows (enhancement). Off: the original range.
     bool shadowAnyDistance = kPcDefault;
+    // Custom texture packs (Dolphin tex1_ names) from <data>/textures (src/recomp/texture_pack.cpp).
+    bool customTextures = true;
 };
 
 // ---- Enhanced lighting > Ghost lights (src/recomp/ghost_lights.cpp; docs/RENDERING.md) ----

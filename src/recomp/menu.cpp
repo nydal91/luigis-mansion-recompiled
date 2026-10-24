@@ -4,6 +4,7 @@
 #ifdef __ANDROID__
 #include "port/android.h"
 #endif
+#include "recomp/texture_pack.h"
 #include "recomp/menu.h"
 #include "recomp/gx_bridge.h"
 
@@ -1614,6 +1615,8 @@ void visualsTab() {
 
     ImGui::SeparatorText("CRT filter");
     sDirty |= recomp::crt::drawMenu();
+
+    sDirty |= recomp::texture_pack::drawMenu();
 }
 
 // Volume slider shown in percent (the setting is 0..1).

@@ -50,6 +50,12 @@ if (NOT _stamped STREQUAL _patch_ids)
     endforeach ()
     file(WRITE ${_stamp} "${_patch_ids}")
 endif ()
+if (CMAKE_CROSSCOMPILING)
+    # The build machine's pkg-config must not offer its libraries (sqlite3, freetype, libpng...) to
+    # a cross build; re-configures from `cmake --build` do not get the preset's environment.
+    set(ENV{PKG_CONFIG_LIBDIR} "/nonexistent-cross-pkgconfig")
+    set(ENV{PKG_CONFIG_PATH} "")
+endif ()
 add_subdirectory(extern/aurora EXCLUDE_FROM_ALL)
 if (ANDROID)
     # Plain char is unsigned on ARM; the port was written and tested where it is signed (x86).

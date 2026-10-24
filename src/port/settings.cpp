@@ -99,6 +99,7 @@ std::vector<Field> fields() {
         flag("rendering", "shadow_render_resolution", r.shadowRenderResolution),
         flag("rendering", "shadow_widescreen", r.shadowWidescreen),
         flag("rendering", "shadow_any_distance", r.shadowAnyDistance),
+        flag("rendering", "custom_textures", r.customTextures),
         // Enhanced lighting > Ghost lights
         flag("ghost_lights", "enabled", sSettings.ghostLights.enabled),
         num("ghost_lights", "intensity", sSettings.ghostLights.intensity),

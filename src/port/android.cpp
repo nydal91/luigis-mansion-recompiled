@@ -231,6 +231,39 @@ void shareLog() {
     });
 }
 
+void pickTexturePack(bool folder, const std::string& destDir) {
+    withActivity([&](JNIEnv* env, jclass cls) -> int {
+        jmethodID m = env->GetStaticMethodID(cls, "pickTexturePack", "(ZLjava/lang/String;)V");
+        if (!m) return 0;
+        jstring s = env->NewStringUTF(destDir.c_str());
+        env->CallStaticVoidMethod(cls, m, jboolean(folder), s);
+        env->DeleteLocalRef(s);
+        return 0;
+    });
+}
+
+ImportStatus texturePackImportStatus() {
+    ImportStatus st;
+    const std::string s = withActivity([](JNIEnv* env, jclass cls) -> std::string {
+        jmethodID m = env->GetStaticMethodID(cls, "texturePackStatus", "()Ljava/lang/String;");
+        if (!m) return {};
+        auto r = static_cast<jstring>(env->CallStaticObjectMethod(cls, m));
+        if (!r) return {};
+        const char* c = env->GetStringUTFChars(r, nullptr);
+        std::string out = c ? c : "";
+        env->ReleaseStringUTFChars(r, c);
+        env->DeleteLocalRef(r);
+        return out;
+    });
+    // "<state>|<count>|<message>"
+    const auto a = s.find('|'), b = a == std::string::npos ? a : s.find('|', a + 1);
+    if (b == std::string::npos) return st;
+    st.state = ImportState(std::atoi(s.substr(0, a).c_str()));
+    st.count = std::atoi(s.substr(a + 1, b - a - 1).c_str());
+    st.message = s.substr(b + 1);
+    return st;
+}
+
 void relaunch(bool setup) {
     sessionEnded();
     withActivity([&](JNIEnv* env, jclass cls) -> int {
