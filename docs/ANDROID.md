@@ -97,6 +97,15 @@ phones. The updater (`update.cpp`) is off: new versions come as a new APK.
 Plain `char` is signed on x86 but unsigned on ARM, so the runtime and the module are built
 with `-fsigned-char` to behave as the port does on PC.
 
+### GitHub Actions
+
+`.github/workflows/android.yml` builds the APK on every push to `android-port` (and by hand:
+Actions > Android > Run workflow); the APK is attached to the run. A tag `android-*` also
+publishes it as a pre-release. The compiler (`libllvm.so`) is built only when its script, the
+LLVM version or the NDK changes (about two hours) and kept in the Actions cache. For APKs that
+install over each other, add the signing keystore as the secret `ANDROID_KEYSTORE_BASE64`
+(base64 of the file; key alias `lmport`, password in `ANDROID_KEYSTORE_PASS` or `android`).
+
 ### Building on a restricted network
 
 The build downloads Dawn, SDL3 and other dependencies at configure time like on desktop.

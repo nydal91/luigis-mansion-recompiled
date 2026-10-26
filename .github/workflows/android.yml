@@ -1,0 +1,141 @@
+# Android APK (docs/ANDROID.md). Builds on every push to android-port, on pull requests to it and
+# by hand (Actions > Android > Run workflow). The APK is attached to the run as an artifact; a
+# pushed tag "android-*" also publishes it as a GitHub release (pre-release).
+#
+# The bundled compiler (libllvm.so, clang + lld for Android) takes about two hours to build, so it
+# is built once and kept in the Actions cache (key: LLVM version, script and NDK).
+#
+# Signing: set the repository secret ANDROID_KEYSTORE_BASE64 (base64 of a keystore whose key is
+# "lmport", password in ANDROID_KEYSTORE_PASS or "android") so every build can be installed over
+# the previous one. Without it a key is generated once and kept in the cache.
+name: Android
+
+on:
+  push:
+    branches: [android-port]
+    tags: ["android-*"]
+  pull_request:
+    branches: [android-port]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NDK_VERSION: 29.0.14206865
+  BUILD_TOOLS: 37.0.0
+  LLVM_VERSION: 21.1.8
+
+jobs:
+  compiler:
+    name: Compiler (libllvm.so)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: key
+        run: echo "key=libllvm-${{ env.LLVM_VERSION }}-ndk${{ env.NDK_VERSION }}-${{ hashFiles('tools/android/build_llvm.sh') }}" >> "$GITHUB_OUTPUT"
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: build/android-llvm/libllvm.so
+          key: ${{ steps.key.outputs.key }}
+          lookup-only: true
+      - name: Install the NDK
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" >/dev/null
+          sudo apt-get update -q && sudo apt-get install -y -q ninja-build clang
+      - name: Build clang + lld for Android
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          LM_LLVM_VERSION: ${{ env.LLVM_VERSION }}
+        run: |
+          export ANDROID_NDK="$ANDROID_HOME/ndk/$NDK_VERSION"
+          tools/android/build_llvm.sh
+          rm -rf build/android-llvm/build build/android-llvm/llvm-project
+      - name: Save the compiler
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/android-llvm/libllvm.so
+          key: ${{ steps.key.outputs.key }}
+
+  apk:
+    name: APK
+    needs: compiler
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write  # releases for android-* tags
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Install the Android SDK parts
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "ndk;$NDK_VERSION" "build-tools;$BUILD_TOOLS" "platforms;android-35" >/dev/null
+          sudo apt-get update -q && sudo apt-get install -y -q ninja-build zip
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Restore the compiler
+        uses: actions/cache/restore@v4
+        with:
+          path: build/android-llvm/libllvm.so
+          key: ${{ needs.compiler.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Cache nod
+        uses: actions/cache@v4
+        with:
+          path: build/android-nod/libnod-android-aarch64.tar.gz
+          key: nod-android-${{ env.NDK_VERSION }}-${{ hashFiles('tools/android/build_nod.sh', 'extern/aurora/cmake/AuroraDependencyVersions.cmake') }}
+      - name: Build nod
+        run: |
+          [ -f build/android-nod/libnod-android-aarch64.tar.gz ] || tools/android/build_nod.sh
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "LM_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret: signing with a key kept in the Actions cache (an APK signed with another key cannot be installed over this one)."
+          fi
+      - name: Cached fallback key
+        if: env.LM_KEYSTORE == ''
+        uses: actions/cache@v4
+        with:
+          path: build/android-debug.keystore
+          key: android-fallback-keystore
+      - name: Build libmain.so
+        run: tools/android/build.sh
+      - name: Build the APK
+        env:
+          LM_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS || 'android' }}
+        run: |
+          name="LuigisMansionRecompiled-android-arm64-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}.apk"
+          tools/android/build_apk.sh "build/$name"
+          echo "APK_NAME=$name" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: build/${{ env.APK_NAME }}
+          compression-level: 0
+      - name: Release (android-* tags)
+        if: startsWith(github.ref, 'refs/tags/android-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "build/$APK_NAME" --prerelease \
+            --title "Android $GITHUB_REF_NAME" \
+            --notes "Android (arm64) build from $GITHUB_SHA. Needs your own disc image; the first start compiles the game on the phone. See docs/ANDROID.md and docs/TEXTURE_PACKS.md."
