@@ -170,6 +170,9 @@ function(lm_runtime_target tgt)
         # (src/setup/module_builder.cpp): no fused multiply-adds the PowerPC would not do, in
         # the HLE math (PSMTX/PSVEC) and in lmrecomp's generated code.
         target_compile_options(${tgt} PRIVATE -ffp-contract=off)
+    elseif (ANDROID)
+        # Android arm64 (docs/ANDROID.md): the same fused multiply-add rule as macOS above.
+        target_compile_options(${tgt} PRIVATE -ffp-contract=off)
     elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # Portable Linux binary (docs/LINUX.md): SDL3, Dawn and nod are linked statically by
         # Aurora; the C++ runtime is too, and src/port/glibc_compat.c covers the few symbols

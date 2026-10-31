@@ -85,11 +85,12 @@ constexpr const char* kLinkerName = "ld64.lld";
 #elif defined(__ANDROID__)
 // Android (docs/ANDROID.md): the Linux flags for arm64. -mno-outline-atomics: the module has
 // no libgcc/compiler-rt to provide the __aarch64_* atomic helpers. -fsigned-char: like the
-// runtime (CMakeLists.txt) and x86, where the port was written.
+// runtime (CMakeLists.txt) and x86, where the port was written. -ffp-contract=off: no fused
+// multiply-adds the PowerPC would not do (as on macOS, docs/MACOS.md "Floating point on arm64").
 const std::vector<std::string> kCompileFlags = {
     "--target=aarch64-linux-android28", "-std=c++20", "-O2", "-fPIC", "-fvisibility=hidden", "-ffreestanding",
     "-nostdinc", "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics", "-fno-math-errno",
-    "-fno-stack-protector", "-funwind-tables", "-mno-outline-atomics", "-fsigned-char",
+    "-fno-stack-protector", "-ffp-contract=off", "-funwind-tables", "-mno-outline-atomics", "-fsigned-char",
     "-Wno-unused-label", "-Wno-unused-variable"};
 const std::vector<std::string> kLinkFlags = {"-shared", "-nostdlib", "--eh-frame-hdr", "-Bsymbolic",
                                              "-z", "defs", "-z", "noexecstack", "-z", "now", "-O1",
