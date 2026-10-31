@@ -97,6 +97,20 @@ phones. The updater (`update.cpp`) is off: new versions come as a new APK.
 Plain `char` is signed on x86 but unsigned on ARM, so the runtime and the module are built
 with `-fsigned-char` to behave as the port does on PC.
 
+### Adreno: OpenGL ES
+
+On Qualcomm Adreno GPUs the port uses Dawn's OpenGL ES backend, not Vulkan (`main.cpp`,
+`ro.hardware.egl` / `ro.hardware.vulkan` = `adreno`; `LM_BACKEND=vulkan` overrides for tests).
+Adreno's Vulkan driver miscompiles the 16-bit unpacking in Aurora's vertex fetch (storage
+buffer reads): on an Adreno 740 (Nubia NX729J, driver 512.863.1) the title backdrop and the
+file-select pictures were drawn as vertical stripes (every pixel sampled the texture's first
+row) and the file-select text was missing, while the 3D world looked right. Checked on the
+device: the texture data, the texcoords the game sends (U16, frac 15) and the texcoord scales
+are correct; the raw interpolated texcoord t was constant in the title draw. Rewriting the
+unpacking (shift and mask instead of `extractBits`, byte loads) did not help (byte loads broke
+positions too), as Aurora's author found on Adreno 7xx/8xx (Dusklight issue #750). GLES draws
+all of it correctly.
+
 ### GitHub Actions
 
 `.github/workflows/android.yml` builds the APK on every push to `android-port` (and by hand:

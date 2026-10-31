@@ -39,6 +39,7 @@
 #endif
 #ifdef __ANDROID__
 #include "port/android.h"
+#include <sys/system_properties.h>
 #endif
 
 #include <atomic>
@@ -256,7 +257,24 @@ int main(int argc, char* argv[]) {
             std::printf("[video] Gamescope: VSync on (FIFO presentation; the VSync setting is ignored under Gamescope)\n");
         }
     }
-    // LM_BACKEND=d3d12|d3d11|vulkan (testing): graphics backend instead of Aurora's choice.
+#ifdef __ANDROID__
+    // Qualcomm's Adreno Vulkan driver miscompiles the 16-bit masking in Aurora's vertex fetch
+    // (Adreno 740 here: the title backdrop and file-select pictures sampled only their first row;
+    // Aurora's author hit the same on Adreno 7xx/8xx, Dusklight #750). The OpenGL ES backend draws
+    // them correctly, so Adreno devices default to it (docs/ANDROID.md "Adreno: OpenGL ES").
+    {
+        char egl[PROP_VALUE_MAX] = {};
+        char vk[PROP_VALUE_MAX] = {};
+        __system_property_get("ro.hardware.egl", egl);
+        __system_property_get("ro.hardware.vulkan", vk);
+        if (std::strstr(egl, "adreno") || std::strstr(vk, "adreno")) {
+            config.desiredBackend = BACKEND_OPENGLES;
+            std::printf("[video] Adreno GPU: OpenGL ES backend (its Vulkan driver breaks 16-bit vertex data; "
+                        "LM_BACKEND=vulkan overrides)\n");
+        }
+    }
+#endif
+    // LM_BACKEND=d3d12|d3d11|vulkan|opengl|gles (testing): graphics backend instead of Aurora's choice.
     if (const char* b = std::getenv("LM_BACKEND")) {
         const std::string s = b;
         config.desiredBackend = s == "d3d12"    ? BACKEND_D3D12
