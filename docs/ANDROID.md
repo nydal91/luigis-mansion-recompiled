@@ -111,6 +111,19 @@ unpacking (shift and mask instead of `extractBits`, byte loads) did not help (by
 positions too), as Aurora's author found on Adreno 7xx/8xx (Dusklight issue #750). GLES draws
 all of it correctly.
 
+### Depth copies on OpenGL ES (Luigi's shadow)
+
+OpenGL ES runs Dawn in compatibility mode, where Aurora skipped EFB depth copies, so the game's
+Z16 copy (Luigi's self-shadow map, `fn_8005D8CC`) was never made and Luigi cast no shadow.
+Compatibility mode forbids `textureLoad` on depth textures and sampling them with a
+non-comparison sampler (both confirmed with `AURORA_DAWN_VALIDATION=1`), so Aurora patch 0251
+reads each texel's 24-bit depth by a binary search of 24 comparison samples
+(`textureSampleCompareLevel`, nearest, LessEqual): the same 24-bit value as the core path's
+`textureLoad`. Only compatibility devices use it; core devices keep the original shaders. The
+24 steps are unrolled: the Adreno GLES compiler hung for over 100 s on the loop form (start-up
+"stopped responding"). Verified on the Adreno 740: shadow back, 1186 Z16 copies with validation
+on and no errors.
+
 ### GitHub Actions
 
 `.github/workflows/android.yml` builds the APK on every push to `android-port` (and by hand:

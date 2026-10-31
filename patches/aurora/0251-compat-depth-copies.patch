@@ -1,0 +1,171 @@
+--- a/lib/gfx/tex_copy_conv.cpp
++++ b/lib/gfx/tex_copy_conv.cpp
+@@ -409,8 +409,13 @@
+ // Depth copies from a multisampled EFB (MSAA enhancement): the same conversions reading sample 0.
+ static wgpu::BindGroupLayout g_depthBindGroupLayoutMS;
+ static absl::flat_hash_map<GXTexFmt, wgpu::RenderPipeline> g_depthPipelinesMS;
++// 0251: compatibility mode (OpenGL ES) forbids textureLoad on depth textures and sampling them with
++// non-comparison samplers; the depth copies there find each texel's 24-bit depth by a binary search
++// of comparison samples (binding 2: nearest, LessEqual).
++static wgpu::BindGroupLayout g_depthBindGroupLayoutCompat;
+ static wgpu::Sampler g_nearestSampler;
+ static wgpu::Sampler g_linearSampler;
++static wgpu::Sampler g_depthCompareSampler; // 0251
+ static absl::flat_hash_map<GXTexFmt, wgpu::RenderPipeline> g_pipelines;
+ static wgpu::RenderPipeline g_blitPipeline;
+ static wgpu::BindGroupLayout g_depthSnapshotBindGroupLayout;
+@@ -633,7 +638,7 @@
+       Log.fatal("Output format mismatch for {}", conv.fmt);
+     }
+   }
+-  // Skip depth copies in compatibility mode
++  // Depth copies: textureLoad on core devices; compatibility mode below (0251).
+   if (webgpu::g_hasCoreFeatures) {
+     for (const auto& conv : DepthConvPipelines) {
+       g_pipelines[conv.fmt] = create_pipeline(conv, DepthShaderPreamble, g_depthBindGroupLayout);
+@@ -651,6 +656,93 @@
+         create_depth_snapshot_pipeline(DepthSnapshotShader, g_depthSnapshotBindGroupLayout, "Depth Snapshot");
+     g_depthSnapshotPipelineMS =
+         create_depth_snapshot_pipeline(DepthSnapshotShaderMS, g_depthSnapshotBindGroupLayoutMS, "Depth Snapshot MS");
++  } else {
++    // 0251: depth copies in compatibility mode (no MSAA there, so single-sampled only).
++    static constexpr std::array depthBindGroupLayoutEntriesCompat{
++        wgpu::BindGroupLayoutEntry{
++            .binding = 0,
++            .visibility = wgpu::ShaderStage::Fragment,
++            .texture =
++                wgpu::TextureBindingLayout{
++                    .sampleType = wgpu::TextureSampleType::Depth,
++                    .viewDimension = wgpu::TextureViewDimension::e2D,
++                },
++        },
++        wgpu::BindGroupLayoutEntry{
++            .binding = 1,
++            .visibility = wgpu::ShaderStage::Vertex,
++            .buffer =
++                wgpu::BufferBindingLayout{
++                    .type = wgpu::BufferBindingType::Uniform,
++                },
++        },
++        wgpu::BindGroupLayoutEntry{
++            .binding = 2,
++            .visibility = wgpu::ShaderStage::Fragment,
++            .sampler =
++                wgpu::SamplerBindingLayout{
++                    .type = wgpu::SamplerBindingType::Comparison,
++                },
++        },
++    };
++    static constexpr wgpu::BindGroupLayoutDescriptor depthBindGroupLayoutDescriptorCompat{
++        .label = "TexCopyConv Depth Compat Bind Group Layout",
++        .entryCount = depthBindGroupLayoutEntriesCompat.size(),
++        .entries = depthBindGroupLayoutEntriesCompat.data(),
++    };
++    g_depthBindGroupLayoutCompat = g_device.CreateBindGroupLayout(&depthBindGroupLayoutDescriptorCompat);
++    std::string preamble = DepthShaderPreamble;
++    const auto replace = [&preamble](std::string_view from, std::string_view to) {
++      const auto pos = preamble.find(from);
++      CHECK(pos != std::string::npos, "tex_copy_conv: compat depth preamble: '{}' not found", from);
++      preamble.replace(pos, from.size(), to);
++    };
++    // depth >= ref is one comparison sample; 24 of them give the depth's 24 bits (floor(depth * (2^24 - 1)),
++    // the value the core path rounds to, exact for 24-bit depth formats).
++    replace("var src: texture_depth_2d;", R"(var src: texture_depth_2d;
++@group(0) @binding(2) var src_samp: sampler_comparison;
++
++fn compat_depth(coord: vec2i, texSize: vec2i) -> f32 {
++    let uv = (vec2f(coord) + vec2f(0.5)) / vec2f(texSize);
++    // Unrolled: the Adreno GLES compiler hung (> 100 s) on the loop form.
++    var lo = 0u;
++    lo = select(lo, lo | 8388608u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 8388608u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 4194304u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 4194304u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 2097152u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 2097152u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 1048576u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 1048576u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 524288u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 524288u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 262144u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 262144u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 131072u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 131072u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 65536u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 65536u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 32768u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 32768u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 16384u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 16384u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 8192u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 8192u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 4096u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 4096u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 2048u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 2048u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 1024u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 1024u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 512u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 512u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 256u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 256u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 128u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 128u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 64u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 64u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 32u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 32u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 16u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 16u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 8u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 8u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 4u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 4u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 2u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 2u) / 16777215.0) > 0.5);
++    lo = select(lo, lo | 1u, textureSampleCompareLevel(src, src_samp, uv, f32(lo | 1u) / 16777215.0) > 0.5);
++    return f32(lo) / 16777215.0;
++})");
++    replace("let depth = textureLoad(src, coord, 0);", "let depth = compat_depth(coord, texSize);");
++    static constexpr wgpu::SamplerDescriptor compareSamplerDescriptor{
++        .label = "TexCopyConv Depth Compare Sampler",
++        .magFilter = wgpu::FilterMode::Nearest,
++        .minFilter = wgpu::FilterMode::Nearest,
++        .compare = wgpu::CompareFunction::LessEqual,
++    };
++    g_depthCompareSampler = g_device.CreateSampler(&compareSamplerDescriptor);
++    for (const auto& conv : DepthConvPipelines) {
++      g_pipelines[conv.fmt] = create_pipeline(conv, preamble, g_depthBindGroupLayoutCompat);
++    }
+   }
+ 
+   static constexpr wgpu::SamplerDescriptor nearestSamplerDescriptor{
+@@ -675,6 +767,8 @@
+   g_depthBindGroupLayout = {};
+   g_depthBindGroupLayoutMS = {};
+   g_depthPipelinesMS.clear();
++  g_depthBindGroupLayoutCompat = {};
++  g_depthCompareSampler = {};
+   g_nearestSampler = {};
+   g_linearSampler = {};
+   g_depthSnapshotBindGroupLayout = {};
+@@ -689,10 +783,31 @@
+   }
+   wgpu::BindGroup bindGroup;
+   if (gx::is_depth_format(req.fmt)) {
+-    // Skip depth copies in compatibility mode
+     if (!webgpu::g_hasCoreFeatures) {
+-      return;
+-    }
++      // 0251: compatibility mode: the same conversion, depth read through comparison samples.
++      const std::array bindGroupEntries{
++          wgpu::BindGroupEntry{
++              .binding = 0,
++              .textureView = req.srcView,
++          },
++          wgpu::BindGroupEntry{
++              .binding = 1,
++              .buffer = detail::resources().uniformBuffer,
++              .offset = req.uniformRange.offset,
++              .size = req.uniformRange.size,
++          },
++          wgpu::BindGroupEntry{
++              .binding = 2,
++              .sampler = g_depthCompareSampler,
++          },
++      };
++      const wgpu::BindGroupDescriptor bindGroupDescriptor{
++          .layout = g_depthBindGroupLayoutCompat,
++          .entryCount = bindGroupEntries.size(),
++          .entries = bindGroupEntries.data(),
++      };
++      bindGroup = g_device.CreateBindGroup(&bindGroupDescriptor);
++    } else {
+     const std::array bindGroupEntries{
+         wgpu::BindGroupEntry{
+             .binding = 0,
+@@ -711,6 +826,7 @@
+         .entries = bindGroupEntries.data(),
+     };
+     bindGroup = g_device.CreateBindGroup(&bindGroupDescriptor);
++    }
+   } else {
+     const auto& sampler = req.sampleFilter == SampleFilter::Linear ? g_linearSampler : g_nearestSampler;
+     const std::array bindGroupEntries{
